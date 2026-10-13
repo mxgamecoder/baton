@@ -34,7 +34,7 @@ npx @lumorapp/baton
 
 ### Or Install from Source
 ```bash
-git clone https://github.com/msgamecoder/baton.git
+git clone https://github.com/mxgamecoder/baton.git
 cd baton
 npm install -g .
 ```

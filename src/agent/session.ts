@@ -696,7 +696,7 @@ export function runUpdate(): { ok: boolean; output: string } {
     return { ok: false, output: output || "install failed" };
   }
 
-  const repo = "github:msgamecoder/baton";
+  const repo = "github:mxgamecoder/baton";
   const fromGithub = spawnSync("npm", ["install", "-g", "--force", repo, "--no-fund", "--no-audit"], { encoding: "utf8" });
   if (fromGithub.status === 0) {
     const check = spawnSync("which", ["baton"], { encoding: "utf8" });

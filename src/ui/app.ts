@@ -2173,7 +2173,7 @@ export async function runChatApp(options: ChatAppOptions): Promise<void> {
         showError('error', message);
         ui.line('', theme.dim);
         ui.markdown(
-          '**Type "continue" to try again.** If the issue persists, open an issue: https://github.com/msgamecoder/baton/issues',
+          '**Type "continue" to try again.** If the issue persists, open an issue: https://github.com/mxgamecoder/baton/issues',
           theme.pick,
         );
       })
