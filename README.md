@@ -19,7 +19,7 @@ This release is a rebuild. The old baton (`@lumorapp/baton`, 0.1.x) was a standa
 | **Base** | custom OpenTUI app, its own agent loop and provider client | OpenCode's own code — baton is a small plugin + launcher |
 | **Models** | its own provider list | every OpenCode model, plus your own key via `baton auth` |
 | **Isolation** | wrote into your config; leaked into your OpenCode | its own home `~/.baton`; your OpenCode is never touched |
-| **Install** | `npm i -g @lumorapp/baton` | runs on your OpenCode; no npm package needed |
+| **Install** | `npm i -g @lumorapp/baton` — a full standalone app | `npm i -g @lumorapp/baton` — a thin launcher + plugin on your OpenCode |
 | **Project files** | left `.baton/` inside your project | leaves nothing — all state lives under `~/.baton` |
 | **Stability** | could hang | server is memory-capped (`MemoryMax`) and auto-restarts; delivery is idle-safe |
 | **Per project** | one global relay | per-project state and a per-project tmux session, so projects don't collide |
