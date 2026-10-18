@@ -1,198 +1,186 @@
-# Baton
+# baton
 
-> **Pass the work between AI coding agents.** A multi-agent launcher, relay, and terminal workspace for pairs of AI agents.
+**Pass work between two OpenCode agents.** baton pairs two agents so they hand tasks to each other instead of you relaying by hand.
+
+> ## Built on OpenCode
 >
-> ⚡ **A [Lumora](https://lumorapp.app) Project.** [Tap here to visit Lumora (lumorapp.app)](https://lumorapp.app).
+> Baton is a thin layer on top of **[OpenCode](https://github.com/anomalyco/opencode)** (MIT). The agents, tools, TUI, sessions and models are OpenCode's own code — baton only adds the relay between two of them and a launcher that keeps everything self-contained.
+>
+> OpenCode is by the OpenCode authors (Anomaly): **https://github.com/anomalyco/opencode** (formerly `sst/opencode`). Full credit and thanks — baton would not exist without it. Baton's relay design (an append-only log as the source of truth) is carried over from the original baton.
 
-Baton launches two coding agents side-by-side (left and right panes) in a single terminal. The agents collaborate on your project, share context, and pass tasks to each other over a local relay protocol.
+Baton runs its own isolated OpenCode: its own server, and its own config, auth and sessions under `~/.baton`. It never reads your OpenCode config, never uses your OpenCode API keys, and never touches your OpenCode sessions or theme.
 
----
+## What's new in 0.2 — and why it's better than the old baton
 
-## Highlights
+This release is a rebuild. The old baton (`@lumorapp/baton`, 0.1.x) was a standalone app with its **own** agent loop, **own** model client and **own** relay daemon — a lot of code to maintain, and it wrote its config into whatever folder you ran it from, which **leaked into your OpenCode**.
 
-- **Dual-Agent Terminal Workspace**: Two agents working together in split tmux panes.
-- **In-Project Isolation**: Every project has its own `.baton/` folder for plans (`.baton/plans/`), walkthroughs (`.baton/walkthroughs/`), isolated memory, and chat sessions.
-- **Code Diffs in Chat**: View file changes inline with colored diffs (`- deleted` lines in red, `+ added` lines in green).
-- **Thinking Display**: Clean, compact thought indicator (`Thought for 4s ▸`). View full reasoning anytime with `ctrl+o` (transcript view) or toggle inline visibility with `/thinking`.
-- **Undo Support (`/undo`)**: Instantly revert the last file edit or write made by an agent.
-- **Safe by Default**: Shell commands and file modifications ask for confirmation (`Yes / No`). Agent-to-agent communication commands (`baton inbox`, `baton send`, etc.) run automatically without interruption. Pass `--yes` to bypass all prompts.
-- **Non-Blocking Execution**: Asynchronous tool runner ensures timers, thinking indicators, and keystrokes never freeze during long-running commands.
+| | old baton (0.1) | new baton (0.2) |
+|---|---|---|
+| **Base** | custom OpenTUI app, its own agent loop and provider client | OpenCode's own code — baton is a small plugin + launcher |
+| **Models** | its own provider list | every OpenCode model, plus your own key via `baton auth` |
+| **Isolation** | wrote into your config; leaked into your OpenCode | its own home `~/.baton`; your OpenCode is never touched |
+| **Install** | `npm i -g @lumorapp/baton` | runs on your OpenCode; no npm package needed |
+| **Project files** | left `.baton/` inside your project | leaves nothing — all state lives under `~/.baton` |
+| **Stability** | could hang | server is memory-capped (`MemoryMax`) and auto-restarts; delivery is idle-safe |
+| **Per project** | one global relay | per-project state and a per-project tmux session, so projects don't collide |
 
----
+## Rebrand build — baton's own binary
 
-## Installation & Setup
+Baton ships its own build of OpenCode, rebranded: the name is **baton**, the version is **0.2.0**, it has baton's logo and terminal title, and OpenCode's self-updater is disabled (baton is not an OpenCode install, so the updater must not offer OpenCode releases).
 
-### Install via npm
-```bash
-npm install -g @lumorapp/baton
+Build it from the OpenCode source (this repo) and install it:
+
+```sh
+cd packages/cli
+OPENCODE_VERSION=0.2.0 bun run script/build.ts --single --skip-web-ui --skip-install
+mkdir -p ~/.baton/bin
+cp dist/cli-linux-x64/bin/opencode ~/.baton/bin/baton
+chmod +x ~/.baton/bin/baton
 ```
 
-Or run instantly without installing:
-```bash
-npx @lumorapp/baton
+The launcher uses `~/.baton/bin/baton` when present, otherwise the `opencode` on `PATH` (`OPENCODE_BIN` overrides both).
+
+The rebrand changes only display strings and the version — OpenCode's behaviour is untouched:
+
+| What | Where |
+|---|---|
+| logo wordmark | `packages/tui/src/logo.ts` |
+| terminal/pane title | `packages/tui/src/app.tsx` |
+| CLI name + description | `packages/cli/script/build.ts`, `packages/cli/src/commands/commands.ts` |
+| version | `OPENCODE_VERSION=0.2.0` build define |
+
+The updater is switched off per install by `autoupdate: false` in baton's config and `OPENCODE_DISABLE_AUTOUPDATE=1`. OpenCode is fully credited at the top of this file and remains under its own MIT licence.
+
+## Isolation — what baton touches and what it never touches
+
+| | |
+|---|---|
+| **Its own** | `~/.baton/` — config (`xdg/config/opencode/`), data + auth (`xdg/data/opencode/`), state, cache, server password |
+| **Its own server** | `127.0.0.1:49395` (`BATON_PORT`), separate from your OpenCode service |
+| **Its own provider** | you add your API key to baton with `baton auth` |
+| **Your project** | nothing — baton keeps its per-project state under its own home |
+| **Never** | `~/.config/opencode`, your OpenCode sessions, your OpenCode theme, your project's `opencode.json` or `.opencode/` |
+
+## Install / add your API key
+
+```sh
+baton auth       # configure a provider for baton (writes under ~/.baton, not your opencode)
 ```
 
-### Or Install from Source
-```bash
-git clone https://github.com/mxgamecoder/baton.git
-cd baton
-npm install -g .
+## Start a pair
+
+```sh
+cd your-project
+baton            # creates two sessions on baton's own server and splits tmux
+baton status     # baton home, server, pair, recent messages
+baton kill       # stop the pair and delete its sessions
 ```
 
----
+`baton` (the launcher):
 
-## First Run
+1. ensures `~/.baton` and baton's own config dir (with the plugin and the `baton-left`/`baton-right` agents);
+2. starts baton's own server if it is not running;
+3. creates the two sessions on it and writes `.baton/pair.json`;
+4. opens them in split tmux panes, each with its own client state.
 
-From any project directory:
-```bash
-baton
-```
+Set `OPENCODE_BIN` if `opencode` is not on `PATH`. If tmux is missing it prints the two commands instead.
 
-1. **Terminal & Dependency Check**: Detects your environment and installs multiplexer tools into `~/.baton/bin` if missing.
-2. **Interactive Setup**: Select your model provider (OpenCode Go, DeepSeek, Claude, OpenAI, Ollama, etc.) with arrow keys and enter your API key.
-3. **Launch**: Splits into dual panes with your agents ready to build.
-
-### Running Options
-```bash
-baton                   # Launch or attach to dual-agent session
-baton --yes             # Run with full auto-approve (bypass tool confirmation prompts)
-baton chat              # Launch single-agent full-screen interactive UI
-baton ask "prompt"      # One-shot headless task
-baton kill              # Stop running agents and the background relay daemon
-```
-
----
-
-## The Interface
-
-![Baton Dual-Agent Interface](docs/interface.png)
-
-Baton runs a full-screen terminal interface powered by [OpenTUI](https://opentui.com):
+## How the relay works
 
 ```
-       █▄▄ ▄▀█ ▀█▀ █▀█ █▄ █
-       █▄█ █▀█  █  █▄█ █ ▀█
-
-               alex   ·   OpenCode Go   ·   deepseek-v4.1-flash   ·   v0.1.0
-
- you  ›  change the accent color to green
-
- baton
- EDIT styles.css +2 -2
-   └ edited /home/mxgamecoder/test/styles.css +2 -2
-      - --accent: #ff6fb5;
-      - --glow: #8a7bff;
-      + --accent: #4ade80;
-      + --glow: #16a34a;
-
- Thought for 3s ▸  (ctrl+o or /thinking to view)
-
- I updated the accent colors to emerald green across styles.css.
-
- ┌─ message ─────────────────────────────────────────────────────────────────┐
- │ Ask anything...   / commands   @ files                                    │
- └───────────────────────────────────────────────────────────────────────────┘
- 20260913-231440  ·  BUILD  ·  12 msgs  ·  17.6k tokens
+ left agent (session A)          right agent (session B)
+        │  baton.handoff / done / fyi
+        ▼
+   .baton/log.jsonl   ← append-only, the source of truth
+        │  plugin delivers to the peer
+        ▼
+   the peer wakes with the message as a normal prompt
 ```
 
-### Keybindings & Shortcuts
-- **Enter**: Send message.
-- **`ctrl+o`**: Open full-screen conversation transcript (scrollable history, full thinking/reasoning blocks, complete error logs).
-- **Esc**: Interrupt thinking/generation or close overlays.
-- **`/`**: Open command picker.
-- **`@`**: File picker / attachment.
+- **Files are the truth.** If the plugin dies, the log still holds every message.
+- **Nothing runs away.** Every message carries a `hop`; delivery stops at `maxHop` (default 8).
+- **Explicit pairing.** The launcher writes which two sessions are paired.
+- **Agent-to-agent tools never prompt** — only `handoff`/`done` wake the peer; `fyi` does not.
 
----
+## Tools the agents get
 
-## Project Structure (`.baton/`)
+| Tool | What it does |
+|---|---|
+| `baton.handoff` | Hand an actionable task to the partner. Delivered and acted on automatically. |
+| `baton.done` | Report a task finished and verified. Closes the thread. |
+| `baton.fyi` | Share an observation. Delivered, but never continues the partner's turn. |
+| `baton.inbox` | Read the relay log (newest first). |
+| `baton.status` | Show the pair, cursors, hop budget, and last message. |
 
-When working inside a project, Baton automatically initializes `.baton/` (and adds it to `.gitignore`):
+## Configuration
 
-```
-my-project/
-├── .baton/
-│   ├── plans/          # Implementation plans generated by agents
-│   ├── walkthroughs/   # Walkthroughs, changelogs, and summaries
-│   ├── chats/          # Project-isolated conversation sessions
-│   └── memory.json     # Facts remembered specifically for this project
-├── src/
-└── package.json
-```
+Baton's config lives at `~/.baton/xdg/config/opencode/opencode.json` — this is baton's only, never your opencode's.
 
-Sessions and memory are scoped per project, ensuring facts or chat logs from one project never leak into another.
-
----
-
-## Slash Commands
-
-Type `/` or a command name in the message input:
-
-| Command | Description |
-|---------|-------------|
-| `/undo` | Revert the last file change (`edit_file` / `write_file`) made by the agent |
-| `/thinking` | Toggle inline thinking visibility (collapsed badge vs full inline display) |
-| `/plan` | Switch to plan mode (read-only exploration, no file modifications) |
-| `/build` | Switch to build mode (full tool execution) |
-| `/sessions` | Switch or resume saved sessions for this project (`ctrl+d` to delete) |
-| `/new` | Start a fresh session in the current project |
-| `/compact` | Summarize conversation history to free context window |
-| `/model` | Switch model on the fly |
-| `/provider` | Switch or connect a new provider (OpenAI, Anthropic, DeepSeek, custom API) |
-| `/cost` | View token usage and estimated cost for the current session |
-| `/send` | Send a relay handoff message to the teammate agent |
-| `/inbox` | Check messages received from the teammate agent |
-| `/clear` | Clear the current conversation transcript |
-| `/quit` | Exit Baton |
-
----
-
-## Model Providers
-
-Baton supports:
-- **Recommended**: Command Code, OpenCode Go, OpenCode Zen, Claude (Anthropic).
-- **Frontier Models**: OpenAI (GPT-4o), Google Gemini, xAI (Grok), Mistral.
-- **Open & Fast**: DeepSeek (Chat & Reasoner), Kimi (Moonshot), Groq, Together AI, Fireworks AI, SiliconFlow, Alibaba Qwen.
-- **Local (No API Key)**: Ollama, LM Studio, vLLM.
-- **Gateways & Custom**: OpenRouter, LiteLLM, Vercel AI Gateway, or any custom OpenAI/Anthropic-compatible endpoint.
-
-Provider configuration:
-```bash
-baton providers                     # List providers and key statuses
-baton key <provider> <api-key>      # Save API key (stored in ~/.baton/keys.json, chmod 600)
-baton models --provider <provider>  # Fetch available models live from provider
-```
-
----
-
-## Multi-Agent Relay
-
-The two agents coordinate through a structured relay protocol:
-- **`handoff`**: Pass an actionable task to the teammate with expected outcomes.
-- **`done`**: Notify that a delegated task was finished and verified.
-- **`fyi`**: Share observations, findings, or port discoveries without transferring turn ownership.
-
-The daemon ensures no runaway loops (max hop count) and isolates relay messages strictly to the working project.
-
----
-
-## Configuration (`~/.baton/config.json`)
-
-```json
+```jsonc
 {
-  "agents": [
-    { "name": "alex", "provider": "opencode-go", "model": "deepseek-v4.1-flash", "role": "left" },
-    { "name": "nova", "provider": "opencode-go", "model": "deepseek-v4.1-flash", "role": "right" }
-  ],
-  "defaultProvider": "opencode-go",
-  "defaultModel": "deepseek-v4.1-flash",
-  "autoApprove": false,
-  "port": 7331,
-  "maxHop": 8
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": [
+    { "package": "/absolute/path/to/opencode/packages/plugins/baton", "options": { "maxHop": 4 } }
+  ]
 }
 ```
 
----
+| Option | Default | Meaning |
+|---|---|---|
+| `maxHop` | `8` | Stop delivering once a message's hop reaches this. |
+| `deliverTypes` | `["handoff", "done"]` | Message types that wake the peer automatically. |
+| `autoDeliver` | `true` | Set `false` to log messages without delivering them. |
 
-## License
+To theme baton (its own TUI colours), put a theme in `~/.baton/xdg/config/opencode/themes/` and set `theme` in baton's config — it affects only baton.
 
-MIT
+## Memory
+
+Baton runs three OpenCode processes: its server plus the two pane clients. Expect roughly **150 MB per client and 160–320 MB for the server** (~0.6 GB total); this is inherent to OpenCode.
+
+Baton caps its server so a runaway can never freeze the machine:
+
+- the server runs as a systemd user unit `baton-server` with `MemoryHigh=700M`, `MemoryMax=900M` and `Restart=on-failure`;
+- tune it with `BATON_MEMORY_HIGH` / `BATON_MEMORY_MAX` (`BATON_NO_CAP=1` disables capping and falls back to a plain process);
+- `baton restart` restarts the server; `baton kill` stops the pair (frees the ~0.3 GB of clients).
+
+Baton's server keeps sessions in memory, so delete finished pairs with `baton kill` rather than leaving them idle.
+
+## Something is stuck
+
+- The relay is file-based, so one agent hanging does **not** block the other — check the other pane.
+- `Esc` in a pane interrupts the running turn.
+- If a pane looks dead, restart the server: `baton restart`, then re-run `baton`.
+- Full reset: `baton kill`, then `baton`.
+
+
+## Running it
+
+Run `baton` in the folder you want the two agents to work in — normally a project directory:
+
+```sh
+cd your-project
+baton
+```
+
+You may also run it in a parent folder (even `$HOME`): baton keeps every file under `~/.baton`, so
+your folder is not touched. But the agents' working directory becomes that folder, so they will
+range over everything inside it. A real project folder keeps them focused. Only `/` (the machine
+root) is refused.
+
+## Files
+
+```
+~/.baton/                        baton's home — never shared with your opencode
+├── xdg/config/opencode/         baton's config dir (opencode.json, agent/, themes/)
+├── xdg/data/opencode/           baton's data + auth.json (your API keys)
+├── projects/<name>-<hash>/      per-project relay state
+│   ├── pair.json                the two session IDs
+│   ├── log.jsonl                the relay log
+│   └── cursors/                 per-session read position and hop
+├── server-password              baton's own server credential
+└── server.log                   baton's server log
+```
+
+Each project also gets its own tmux session, `baton-<name>-<hash>`, so different projects can run
+pairs at the same time.
+

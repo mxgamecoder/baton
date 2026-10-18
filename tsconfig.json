@@ -1,15 +1,9 @@
 {
+  "$schema": "https://json.schemastore.org/tsconfig.json",
+  "extends": "@tsconfig/bun/tsconfig.json",
   "compilerOptions": {
-    "target": "ES2023",
-    "lib": ["ES2023"],
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "strict": true,
     "noEmit": true,
-    "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": true,
-    "skipLibCheck": true,
-    "types": ["node"]
+    "noUncheckedIndexedAccess": false
   },
-  "include": ["src"]
+  "include": ["index.ts", "src", "bin"]
 }

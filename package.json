@@ -1,48 +1,33 @@
 {
-  "name": "@lumorapp/baton",
-  "version": "0.1.5",
-  "description": "Pass the work between AI coding agents. A relay + launcher for any agent CLI.",
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@lumorapp/opencode-baton",
+  "version": "0.2.0",
+  "description": "Pass work between two OpenCode agents — a handoff relay for split-terminal pair programming.",
   "type": "module",
   "license": "MIT",
+  "exports": {
+    ".": "./index.ts",
+    "./server": "./index.ts"
+  },
   "bin": {
-    "baton": "bin/baton.js"
+    "baton": "./bin/baton.ts"
   },
   "files": [
-    "bin",
-    "dist",
+    "index.ts",
     "src",
-    "adapters",
-    "docs",
-    "scripts",
-    "README.md",
-    "LICENSE"
-  ],
-  "engines": {
-    "node": ">=22.6"
-  },
-  "scripts": {
-    "baton": "node dist/cli/index.js",
-    "test": "node --test \"test/**/*.test.ts\"",
-    "build": "node --expose-internals scripts/build.js",
-    "prepublishOnly": "npm run build"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/mxgamecoder/baton.git"
-  },
-  "keywords": [
-    "ai",
+    "bin",
     "agents",
-    "relay",
-    "mcp",
-    "cli",
-    "multi-agent",
-    "tmux"
+    "README.md"
   ],
-  "dependencies": {
-    "@opentui/core": "^0.5.11"
+  "scripts": {
+    "typecheck": "tsgo --noEmit"
   },
-  "publishConfig": {
-    "access": "public"
+  "peerDependencies": {
+    "@opencode/plugin": "^2.0.27",
+    "effect": "4.0.1"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "1.0.9",
+    "@types/bun": "1.4.0"
   }
 }
