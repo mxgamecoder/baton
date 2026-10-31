@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@lumorapp/opencode-baton",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "Two equal coding agents in one terminal: one works, the other watches and steers.",
   "type": "module",
   "license": "MIT",

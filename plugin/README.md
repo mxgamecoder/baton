@@ -89,6 +89,18 @@ still works for a specific URL.
 | its own server on `127.0.0.1:49395` | your OpenCode sessions/theme/providers |
 | the pair's two sessions | your project's `opencode.json` / `.opencode/` |
 
+## Install
+
+```sh
+unzip baton-0.4.6-linux-x64.zip
+./baton-0.4.6-linux-x64/baton auth      # your provider
+./baton-0.4.6-linux-x64/baton model <provider/model>
+cd your-project && /path/to/baton-0.4.6-linux-x64/baton
+```
+
+The folder is the whole install: compiled launcher, baton's own OpenCode binary and
+the plugin. No bun, no node, no tmux, no separate opencode.
+
 ## Run
 
 ```sh

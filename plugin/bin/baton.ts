@@ -66,7 +66,7 @@ const OPENCODE =
       ? BATON_BIN
       : "opencode")
 // Fixed names: the two halves are equal, but users cannot rename them.
-const BATON_VERSION = "0.4.5"
+const BATON_VERSION = "0.4.6"
 const LEFT_AGENT = "alex"
 const RIGHT_AGENT = "nova"
 

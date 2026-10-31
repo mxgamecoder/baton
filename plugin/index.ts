@@ -1,4 +1,4 @@
-import { Plugin } from "@opencode/plugin"
+import type { Plugin } from "@opencode/plugin"
 import { startDelivery } from "./src/delivery.js"
 import { makeStore } from "./src/store.js"
 import { registerTools } from "./src/tools.js"
@@ -17,7 +17,10 @@ const DEFAULT_DELIVER: RelayType[] = ["handoff", "done"]
  * goes idle. The pairing itself is written by the launcher (`bin/baton.ts`) —
  * the plugin never guesses.
  */
-export default Plugin.define({
+// Plain-object ABI: no runtime import, so the shipped plugin needs no node_modules.
+const define = (plugin: Plugin) => plugin
+
+export default define({
   id: "lumorapp.baton",
   async setup(ctx) {
     const options = resolveOptions(ctx.options)
