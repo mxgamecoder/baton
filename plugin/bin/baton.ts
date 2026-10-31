@@ -2,7 +2,7 @@
 import { spawn, spawnSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import { closeSync, existsSync, openSync } from "node:fs"
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -35,6 +35,7 @@ const XDG = {
 }
 const CONFIG_DIR = path.join(XDG.config, "opencode")
 const DATA_DIR = path.join(XDG.data, "opencode")
+const CONFIG_FILE = path.join(CONFIG_DIR, "opencode.json")
 const PORT = Number(process.env.BATON_PORT ?? 49395)
 const URL_ = `http://127.0.0.1:${PORT}`
 const batonEnv: Record<string, string> = {
@@ -65,8 +66,8 @@ const OPENCODE =
       ? BATON_BIN
       : "opencode")
 const TMUX_SESSION = process.env.BATON_SESSION ?? `baton-${projectSlug(process.cwd())}`
-const LEFT = "baton-left"
-const RIGHT = "baton-right"
+// Both halves are the same agent: either can build, watch, review or take over.
+const AGENT = "baton"
 
 const directory = process.cwd()
 const command = process.argv[2] ?? "up"
@@ -83,13 +84,13 @@ async function up() {
   await ensureHome()
   const password = await ensurePassword()
   await ensureServer(password)
-  const left = await createSession(password, LEFT, "baton · left")
-  const right = await createSession(password, RIGHT, "baton · right")
-  await store.writePair({ left, right, leftAgent: LEFT, rightAgent: RIGHT, created: Date.now() } satisfies Pair)
+  const left = await createSession(password, AGENT, "baton · left")
+  const right = await createSession(password, AGENT, "baton · right")
+  await store.writePair({ left, right, leftAgent: AGENT, rightAgent: AGENT, created: Date.now() } satisfies Pair)
   await store.reset()
   console.log(`paired  left=${left}  right=${right}`)
   if (!existsSync(path.join(DATA_DIR, "auth.json"))) {
-    console.log("tip: no API key added — baton uses OpenCode's default model; add your own with `baton auth`")
+    console.log("tip: no provider yet — run `baton auth` to add one, then `baton model` to pick a model")
   }
   launchTmux(password, left, right)
 }
@@ -131,28 +132,73 @@ async function auth() {
     stdio: "inherit",
     env: { ...process.env, ...batonEnv },
   })
+  console.log("")
+  console.log("next: `baton models` to see what you have, then `baton model <provider/model>` to pick one")
   process.exit(result.status ?? 1)
+}
+
+/** Show or set the model baton uses. Every user picks their own provider/model. */
+async function model() {
+  await ensureHome()
+  const raw = await readFile(CONFIG_FILE, "utf8").catch(() => "{}")
+  const config = parseConfig(raw, CONFIG_FILE) ?? {}
+  const wanted = process.argv[3]
+  if (!wanted) {
+    console.log(`model   ${typeof config.model === "string" ? config.model : "(opencode default)"}`)
+    console.log(`config  ${CONFIG_FILE}`)
+    console.log("")
+    console.log("list models:  baton models")
+    console.log("set a model:  baton model <provider/model>")
+    return
+  }
+  config.model = wanted
+  await writeFile(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`)
+  console.log(`baton will use ${wanted}`)
+  console.log("relaunch the pair (or `baton restart`) to pick it up")
+}
+
+async function models() {
+  await ensureHome()
+  const result = spawnSync(OPENCODE, ["models"], { stdio: "inherit", env: { ...process.env, ...batonEnv } })
+  process.exit(result.status ?? 0)
 }
 
 // --- baton home: its own config + agents, never the user's ---
 
 async function ensureHome() {
   await mkdir(path.join(CONFIG_DIR, "agent"), { recursive: true })
-  const configFile = path.join(CONFIG_DIR, "opencode.json")
-  const existing = await readFile(configFile, "utf8").catch(() => undefined)
-  const config = existing === undefined ? {} : parseConfig(existing, configFile)
+  const existing = await readFile(CONFIG_FILE, "utf8").catch(() => undefined)
+  const config = existing === undefined ? {} : parseConfig(existing, CONFIG_FILE)
   if (config === undefined) return
   const plugins = Array.isArray(config.plugins) ? config.plugins : []
-  const needsWrite = existing === undefined || !plugins.includes(PLUGIN_DIR) || config.autoupdate !== false
-  if (!plugins.includes(PLUGIN_DIR)) config.plugins = [...plugins, PLUGIN_DIR]
+  // Exactly one baton plugin: drop stale checkouts of the same package, keep everything else.
+  const kept = plugins.filter((entry) => !isStaleBatonEntry(entry))
+  const next = kept.includes(PLUGIN_DIR) ? kept : [...kept, PLUGIN_DIR]
+  const needsWrite =
+    existing === undefined ||
+    config.autoupdate !== false ||
+    config.$schema === undefined ||
+    next.length !== plugins.length ||
+    !plugins.includes(PLUGIN_DIR)
+  config.plugins = next
   // Never check opencode's updater: baton is its own build, not an opencode install.
   config.autoupdate = false
   if (config.$schema === undefined) config.$schema = "https://opencode.ai/config.json"
-  if (needsWrite) await writeFile(configFile, `${JSON.stringify(config, null, 2)}\n`)
-  for (const file of ["baton-left.md", "baton-right.md"]) {
-    const destination = path.join(CONFIG_DIR, "agent", file)
-    if (!existsSync(destination)) await copyFile(path.join(AGENTS_DIR, file), destination)
+  if (needsWrite) await writeFile(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`)
+  // One symmetric agent, shared by both halves.
+  const destination = path.join(CONFIG_DIR, "agent", "baton.md")
+  if (!existsSync(destination)) await copyFile(path.join(AGENTS_DIR, "baton.md"), destination)
+  // Retire the old asymmetric pair if an earlier version wrote it into baton's home.
+  for (const stale of ["baton-left.md", "baton-right.md"]) {
+    await rm(path.join(CONFIG_DIR, "agent", stale), { force: true }).catch(() => undefined)
   }
+}
+
+/** Any other checkout of the baton plugin package — baton must load exactly one. */
+function isStaleBatonEntry(entry: unknown): boolean {
+  if (typeof entry !== "string" || entry === PLUGIN_DIR) return false
+  const clean = entry.replace(/\\/g, "/").replace(/\/+$/, "")
+  return clean.endsWith("/plugins/baton") || clean.endsWith("/baton/plugin")
 }
 
 function parseConfig(raw: string, file: string): Record<string, unknown> | undefined {
@@ -364,7 +410,7 @@ const powerShellQuote = (value: string) => `'${value.replace(/'/g, "''")}'`
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function usage() {
-  console.log("usage: baton [up|kill|status|auth|restart]")
+  console.log("usage: baton [up|kill|status|auth|model|models|restart]")
   process.exit(1)
 }
 
@@ -372,6 +418,8 @@ function usage() {
 if (command === "kill" || command === "down") await kill()
 else if (command === "status") await status()
 else if (command === "auth" || command === "login") await auth()
+else if (command === "model") await model()
+else if (command === "models") await models()
 else if (command === "restart") await restart()
 else if (command === "up" || command === "start") await up()
 else usage()

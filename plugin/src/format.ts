@@ -45,5 +45,17 @@ function renderOne(message: RelayMessage, pair: Pair | undefined, maxHop: number
 export const GUIDANCE = [
   "",
   "Act on this. To pass work back, call `baton.handoff`. When the task is finished and verified, call `baton.done`.",
+  "To check what the other agent is doing, call `baton.watch`; to redirect it while it works, call `baton.steer`.",
   "Do not call these tools just to acknowledge — only to move the work forward.",
 ].join("\n")
+
+/** A direct, mid-turn instruction from the partner. */
+export function renderSteer(pair: Pair | undefined, from: string, message: string): string {
+  return [
+    `[baton steer from ${labelOf(pair, from)}]`,
+    message.trim(),
+    "",
+    "Your partner is redirecting the work you are doing right now. Apply this to the current task.",
+    "If it changes direction, update your plan instead of restarting.",
+  ].join("\n")
+}

@@ -1,8 +1,9 @@
 import type { Plugin } from "@opencode/plugin"
 import { deliverTo } from "./delivery.js"
-import { labelOf, peerOf, render } from "./format.js"
+import { labelOf, peerOf, render, renderSteer } from "./format.js"
 import type { Store } from "./store.js"
 import type { BatonOptions, Pair } from "./types.js"
+import type { WatchFeed } from "./watch.js"
 
 type RelayContext = Pick<Plugin.Context, "tool" | "session">
 
@@ -12,6 +13,16 @@ interface HandoffInput {
   readonly files?: string[]
   readonly next?: string[]
   readonly replyRequired?: boolean
+}
+
+interface SteerInput {
+  readonly message: string
+  readonly interrupt?: boolean
+}
+
+interface WatchInput {
+  readonly limit?: number
+  readonly sessionID?: string
 }
 
 interface DoneInput {
@@ -38,7 +49,7 @@ const NAMESPACE = {
 
 const EMPTY_INPUT = { type: "object", properties: {}, additionalProperties: false } as const
 
-export async function registerTools(ctx: RelayContext, store: Store, options: BatonOptions) {
+export async function registerTools(ctx: RelayContext, store: Store, options: BatonOptions, feed: WatchFeed) {
   await ctx.tool.transform((tools) => {
     tools.namespace(NAMESPACE)
 
@@ -150,6 +161,87 @@ export async function registerTools(ctx: RelayContext, store: Store, options: Ba
     })
 
     tools.add({
+      name: "watch",
+      description:
+        "See what your partner is doing right now: its recent tool calls, files it touched and what it said. Use this when asked to monitor, review live progress, or pick up where the partner stopped.",
+      input: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "How many recent activity lines (default 20, max 100)" },
+          sessionID: { type: "string", description: "Watch a specific session instead of your partner" },
+        },
+        additionalProperties: false,
+      },
+      options: { namespace: "baton", codemode: false },
+      execute: async (raw, toolCtx) => {
+        const input = raw as WatchInput
+        const pair = await store.readPair()
+        const from = toolCtx.sessionID
+        const target = input.sessionID ?? (pair ? requirePeer(pair, from) : undefined)
+        if (!target) return { content: "Not paired. Run `baton` to start a pair." }
+        const limit = Math.max(1, Math.min(Number(input.limit) || 20, 100))
+        const entries = feed.read(target, limit)
+        const status = feed.status(target)
+        const head = `[baton] watching ${labelOf(pair, target)} (${target}) · ${status} · last ${entries.length} line(s)`
+        if (entries.length === 0) {
+          return { content: `${head}\n(no activity seen yet — the partner may not have started a turn)` }
+        }
+        const lines = entries.map((entry) => `${clock(entry.ts)} ${entry.kind.padEnd(5)} ${entry.text}`)
+        return { content: [head, ...lines].join("\n") }
+      },
+    })
+
+    tools.add({
+      name: "steer",
+      description:
+        "Redirect your partner while it is working — tell it to change what it is doing, fix a specific thing, or take a different approach. Delivered at the next step boundary; set interrupt to stop the current step immediately. If the partner is idle this starts it with your instruction.",
+      input: {
+        type: "object",
+        properties: {
+          message: { type: "string", description: "The instruction to give your partner, in plain language" },
+          interrupt: { type: "boolean", description: "Stop the running step now instead of waiting for it to finish" },
+        },
+        required: ["message"],
+        additionalProperties: false,
+      },
+      options: { namespace: "baton", codemode: false },
+      execute: async (raw, toolCtx) => {
+        const input = raw as SteerInput
+        const message = String(input.message ?? "").trim()
+        if (message.length === 0) throw new Error("steer needs a message")
+        const pair = await requirePair(store)
+        const from = toolCtx.sessionID
+        const to = requirePeer(pair, from)
+        const hop = (await store.readCursor(from)).hop
+        await store.append({
+          from,
+          to,
+          type: "steer",
+          summary: message.length > 120 ? `${message.slice(0, 119)}…` : message,
+          body: message,
+          hop,
+        })
+        const midTurn = feed.status(to) === "working"
+        await ctx.session.prompt({
+          sessionID: to,
+          text: renderSteer(pair, from, message),
+          delivery: midTurn ? "steer" : "queue",
+        })
+        let stopped = false
+        if (input.interrupt === true && midTurn) {
+          // resume:true replays the steer we just queued, so the partner stops and reads it.
+          const result = await ctx.session.interrupt({ sessionID: to, resume: true })
+          stopped = result?.interrupted === true
+        }
+        return {
+          content: `steer delivered to ${labelOf(pair, to)} (${midTurn ? "mid-turn" : "queued, partner was idle"})${
+            stopped ? ", current step interrupted" : ""
+          }`,
+        }
+      },
+    })
+
+    tools.add({
       name: "inbox",
       description: "Read the baton relay log for this pair, newest first.",
       input: {
@@ -207,6 +299,8 @@ async function requirePair(store: Store): Promise<Pair> {
   if (!pair) throw new Error("No baton pair in this project. Run `baton` to start one.")
   return pair
 }
+
+const clock = (ts: number) => new Date(ts).toISOString().slice(11, 19)
 
 function requirePeer(pair: Pair, sessionID: string): string {
   const peer = peerOf(pair, sessionID)

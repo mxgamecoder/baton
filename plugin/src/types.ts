@@ -1,4 +1,4 @@
-export type RelayType = "handoff" | "done" | "fyi" | "question" | "answer"
+export type RelayType = "handoff" | "done" | "fyi" | "question" | "answer" | "steer"
 
 export interface RelayMessage {
   readonly id: string

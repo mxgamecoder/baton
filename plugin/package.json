@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@lumorapp/opencode-baton",
-  "version": "0.2.0",
-  "description": "Pass work between two OpenCode agents — a handoff relay for split-terminal pair programming.",
+  "version": "0.3.0",
+  "description": "Two equal coding agents in one terminal: one works, the other watches and steers.",
   "type": "module",
   "license": "MIT",
   "exports": {

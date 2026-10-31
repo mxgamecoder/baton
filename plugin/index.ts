@@ -3,26 +3,29 @@ import { startDelivery } from "./src/delivery.js"
 import { makeStore } from "./src/store.js"
 import { registerTools } from "./src/tools.js"
 import type { BatonOptions, RelayType } from "./src/types.js"
+import { makeWatchFeed } from "./src/watch.js"
 
-const TYPES: RelayType[] = ["handoff", "done", "fyi", "question", "answer"]
+const TYPES: RelayType[] = ["handoff", "done", "fyi", "question", "answer", "steer"]
 const DEFAULT_DELIVER: RelayType[] = ["handoff", "done"]
 
 /**
- * baton — pass work between the two agents of a split-terminal pair.
+ * baton — two peer agents in one split terminal.
  *
- * The plugin only wires up an agent's side of the relay: it registers the `baton.*`
- * tools and delivers queued messages to a paired session when that session goes idle.
- * Which two sessions are paired is decided by the launcher (`bin/baton.ts`) via
- * `.baton/pair.json` — this plugin never guesses.
+ * Both agents are equal: either can build, either can watch, either can steer.
+ * This plugin gives each of them the `baton.*` tools, mirrors what each one is
+ * doing into a live feed, and delivers queued work to a paired session when it
+ * goes idle. The pairing itself is written by the launcher (`bin/baton.ts`) —
+ * the plugin never guesses.
  */
 export default Plugin.define({
   id: "lumorapp.baton",
   async setup(ctx) {
     const options = resolveOptions(ctx.options)
     const store = makeStore(ctx.location.directory)
+    const feed = makeWatchFeed()
     await store.ensure()
-    await registerTools(ctx, store, options)
-    return startDelivery(ctx, store, options)
+    await registerTools(ctx, store, options, feed)
+    return startDelivery(ctx, store, options, feed)
   },
 })
 

@@ -2,6 +2,7 @@ import type { Plugin } from "@opencode/plugin"
 import { GUIDANCE, peerOf, render } from "./format.js"
 import type { Store } from "./store.js"
 import type { BatonOptions } from "./types.js"
+import { watchEvent, type WatchFeed } from "./watch.js"
 
 interface AnyEvent {
   readonly type: string
@@ -21,14 +22,16 @@ export async function startDelivery(
   ctx: DeliveryContext,
   store: Store,
   options: BatonOptions,
+  feed: WatchFeed,
 ): Promise<() => void> {
-  if (!options.autoDeliver) return () => {}
-
   const controller = new AbortController()
   const inFlight = new Set<string>()
 
   const loop = (async () => {
     for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
+      // The feed runs even when auto-delivery is off: watching is always available.
+      watchEvent(event as AnyEvent, feed)
+      if (!options.autoDeliver) continue
       const sessionID = idleSession(event as AnyEvent)
       if (!sessionID || inFlight.has(sessionID)) continue
       inFlight.add(sessionID)
