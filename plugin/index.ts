@@ -22,7 +22,7 @@ export default Plugin.define({
   async setup(ctx) {
     const options = resolveOptions(ctx.options)
     const store = makeStore(ctx.location.directory)
-    const feed = makeWatchFeed()
+    const feed = makeWatchFeed(store.root)
     await store.ensure()
     await registerTools(ctx, store, options, feed)
     return startDelivery(ctx, store, options, feed)

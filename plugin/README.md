@@ -4,14 +4,15 @@
 steer it mid-task — or take over. Built on [OpenCode](https://github.com/anomalyco/opencode)
 (MIT); baton is a thin layer on top of its agents, tools, sessions and TUI.
 
-> Status: **0.3 (dev)**. Core relay, watch and steer are working end to end.
-> The single self-contained binary (no tmux, no separate installs) is the next step.
+> Status: **0.4 (dev)**. One binary, one window, two agents — **no tmux**. Core relay,
+> watch, steer and the split view are working end to end on Linux.
 
 ## What it does
 
 | | |
 |---|---|
 | **Both agents are equal** | Either can build, review, watch or take over. There is no fixed "builder" and no fixed "inspector" — the pair decides per task. |
+| **Split view** | Left half is the agent you drive; right half is a live mirror of the other one's tool calls, files and messages. `alt+shift+left` / `alt+shift+right` swaps them. |
 | **`baton.watch`** | One agent reads what the other is doing live: its tool calls, files it touched, what it said. |
 | **`baton.steer`** | Redirect the other agent while it works ("fix the parser, not the tests"). Applies at the next step; `interrupt: true` stops the current step. |
 | **`baton.handoff` / `done`** | Pass actionable work, or close a thread with a verified result. Delivered automatically at the partner's next turn. |
@@ -48,8 +49,9 @@ baton kill        # stop the pair
 baton restart     # restart baton's own server
 ```
 
-Current dev build still opens the two panes with tmux; removing that dependency
-(native split in baton's own TUI) is the 0.4 milestone.
+One binary, no tmux, no separate OpenCode install. The split lives in baton's own TUI
+(`patches/baton-split.patch`); the mirror tails a JSONL feed the plugin writes to
+`~/.baton/projects/<project>/feed/<session>.jsonl`.
 
 ## Isolation
 

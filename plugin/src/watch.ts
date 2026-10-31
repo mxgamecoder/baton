@@ -6,9 +6,12 @@
  * each session did (tool calls, files touched, things it said) and lets the
  * partner read that with `baton.watch`.
  *
- * In-memory on purpose: it is a rear-view mirror, not a transcript. If the
- * server restarts the mirror clears; the session's own history is still there.
+ * The ring is a rear-view mirror, not a transcript. With a root it is also
+ * appended to disk so the split TUI can show the peer live.
  */
+
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import path from "node:path"
 
 export interface WatchEntry {
   readonly ts: number
@@ -27,17 +30,39 @@ export interface WatchFeed {
 
 const MAX_ENTRIES = 200
 const MAX_TEXT = 600
+const MAX_FILE_LINES = 600
 
-export function makeWatchFeed(): WatchFeed {
+/**
+ * `root` makes the feed durable: every line is also appended to
+ * `<root>/feed/<sessionID>.jsonl`, which the split TUI reads to show the peer
+ * live. The tool reads the in-memory ring; the pane reads the file.
+ */
+export function makeWatchFeed(root?: string): WatchFeed {
   const entries = new Map<string, WatchEntry[]>()
   const statuses = new Map<string, WatchStatus>()
+  const counts = new Map<string, number>()
+
+  const append = (sessionID: string, entry: WatchEntry) => {
+    if (!root) return
+    const file = path.join(root, "feed", `${sessionID.replace(/[^a-zA-Z0-9._-]/g, "_")}.jsonl`)
+    mkdirSync(path.dirname(file), { recursive: true })
+    if ((counts.get(sessionID) ?? 0) >= MAX_FILE_LINES) {
+      const kept = readFileSync(file, "utf8").split("\n").filter(Boolean).slice(-MAX_FILE_LINES / 2)
+      writeFileSync(file, kept.length > 0 ? `${kept.join("\n")}\n` : "")
+      counts.set(sessionID, kept.length)
+    }
+    appendFileSync(file, `${JSON.stringify(entry)}\n`)
+    counts.set(sessionID, (counts.get(sessionID) ?? 0) + 1)
+  }
 
   return {
     push(sessionID, entry) {
+      const line = { ...entry, text: clip(entry.text) }
       const list = entries.get(sessionID) ?? []
-      list.push({ ...entry, text: clip(entry.text) })
+      list.push(line)
       if (list.length > MAX_ENTRIES) list.splice(0, list.length - MAX_ENTRIES)
       entries.set(sessionID, list)
+      append(sessionID, line)
     },
     status: (sessionID) => statuses.get(sessionID) ?? "unknown",
     setStatus: (sessionID, status) => {

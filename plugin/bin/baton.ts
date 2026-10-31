@@ -6,7 +6,7 @@ import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { makeStore, projectSlug } from "../src/store.js"
+import { makeStore } from "../src/store.js"
 import type { Pair } from "../src/types.js"
 
 // Where this launcher lives. In a bundled install that folder holds the launcher
@@ -65,7 +65,6 @@ const OPENCODE =
     : existsSync(BATON_BIN)
       ? BATON_BIN
       : "opencode")
-const TMUX_SESSION = process.env.BATON_SESSION ?? `baton-${projectSlug(process.cwd())}`
 // Both halves are the same agent: either can build, watch, review or take over.
 const AGENT = "baton"
 
@@ -76,14 +75,18 @@ async function up() {
   guardDirectory()
   const store = makeStore(directory)
   await store.ensure()
-  if (tmuxAlive()) {
-    console.log("baton pair already running in this project — attaching")
-    attach()
-    return
-  }
   await ensureHome()
   const password = await ensurePassword()
   await ensureServer(password)
+
+  // Reuse the pair if it exists: the sessions stay on baton's server until `baton kill`.
+  const existing = await store.readPair()
+  if (existing) {
+    console.log(`paired  left=${existing.left}  right=${existing.right} (existing)`)
+    launch(password, existing.left, existing.right, store.root)
+    return
+  }
+
   const left = await createSession(password, AGENT, "baton · left")
   const right = await createSession(password, AGENT, "baton · right")
   await store.writePair({ left, right, leftAgent: AGENT, rightAgent: AGENT, created: Date.now() } satisfies Pair)
@@ -92,11 +95,10 @@ async function up() {
   if (!existsSync(path.join(DATA_DIR, "auth.json"))) {
     console.log("tip: no provider yet — run `baton auth` to add one, then `baton model` to pick a model")
   }
-  launchTmux(password, left, right)
+  launch(password, left, right, store.root)
 }
 
 async function kill() {
-  spawnSync("tmux", ["kill-session", "-t", TMUX_SESSION])
   const store = makeStore(directory)
   const pair = await store.readPair()
   if (pair) {
@@ -325,64 +327,29 @@ const authHeaders = (password: string) => ({
 
 // --- terminal ---
 
-function launchTmux(password: string, left: string, right: string) {
-  if (!has("tmux")) {
-    console.log("tmux not found — run each half yourself:")
-    console.log(`  ${paneCommand(password, left, "baton-left")}`)
-    console.log(`  ${paneCommand(password, right, "baton-right")}`)
-    return
-  }
-  if (tmuxAlive()) {
-    attach()
-    return
-  }
-  run("tmux", ["new-session", "-d", "-s", TMUX_SESSION, "-c", directory, paneCommand(password, left, "baton-left")])
-  run("tmux", ["split-window", "-h", "-t", TMUX_SESSION, "-c", directory, paneCommand(password, right, "baton-right")])
-  run("tmux", ["select-layout", "-t", TMUX_SESSION, "even-horizontal"])
-  // Let a click focus a pane (and reach the TUI), so both halves accept input.
-  spawnSync("tmux", ["set-option", "-t", TMUX_SESSION, "mouse", "on"])
-  // Keep opencode from renaming the panes, so they read "baton · left/right".
-  spawnSync("tmux", ["set-option", "-t", TMUX_SESSION, "allow-rename", "off"])
-  spawnSync("tmux", ["set-option", "-t", TMUX_SESSION, "automatic-rename", "off"])
-  spawnSync("tmux", ["select-pane", "-t", `${TMUX_SESSION}.0`, "-T", "baton · left"])
-  spawnSync("tmux", ["select-pane", "-t", `${TMUX_SESSION}.1`, "-T", "baton · right"])
-  attach()
-}
-
-function attach() {
+/**
+ * One client process, two agents: the left session is the one we attach to, the
+ * right session is mirrored in baton's own pane. No tmux, no second install.
+ */
+function launch(password: string, left: string, right: string, root: string) {
+  const feed = path.join(root, "feed")
+  const argv = ["--server", URL_, "-s", left, "--peer", right, "--peer-home", left, "--peer-feed", feed]
   if (process.env.BATON_NO_ATTACH) {
-    console.log(`tmux session "${TMUX_SESSION}" is running — attach with: tmux attach -t ${TMUX_SESSION}`)
+    console.log(`run in a terminal: ${OPENCODE} ${argv.join(" ")}`)
     return
   }
-  spawnSync("tmux", ["attach", "-t", TMUX_SESSION], { stdio: "inherit" })
+  const result = spawnSync(OPENCODE, argv, {
+    stdio: "inherit",
+    env: { ...process.env, ...batonEnv, OPENCODE_PASSWORD: password, OPENCODE_TUI_CHANNEL: "baton" },
+  })
+  if (result.status !== 0 && result.status !== null) {
+    console.error(`baton: the agent window exited with status ${result.status}`)
+  }
 }
-
-// Each pane carries baton's own config dir and its own TUI channel, so it never
-// reads the user's config and the two panes never share client state.
-// Windows has no tmux and PowerShell has no `VAR=value cmd` prefix syntax, so on
-// win32 we emit a `$env:…; & cmd` line the user can paste into a PowerShell window.
-const paneCommand = (password: string, sessionID: string, channel: string) =>
-  process.platform === "win32"
-    ? [
-        ...Object.entries({ ...batonEnv, OPENCODE_PASSWORD: password, OPENCODE_TUI_CHANNEL: channel }).map(
-          ([key, value]) => `$env:${key}=${powerShellQuote(value)}`,
-        ),
-        `& ${powerShellQuote(OPENCODE)} --server ${powerShellQuote(URL_)} -s ${powerShellQuote(sessionID)}`,
-      ].join("; ")
-    : [
-        ...Object.entries(batonEnv).map(([key, value]) => `${key}=${shellQuote(value)}`),
-        `OPENCODE_PASSWORD=${shellQuote(password)}`,
-        `OPENCODE_TUI_CHANNEL=${channel}`,
-        OPENCODE,
-        `--server ${shellQuote(URL_)}`,
-        `-s ${shellQuote(sessionID)}`,
-      ].join(" ")
-
-// --- misc ---
 
 /**
- * Baton keeps all its state under its own home, so the current directory is only the
- * agents' working scope. Only "/" is refused: it is the machine root and not a project.
+ * baton keeps all its state under its own home, so the current directory is only the
+ * agents' working scope. Only "/" is refused: it is the machine root, not a project.
  */
 function guardDirectory() {
   if (directory !== "/") return
@@ -395,17 +362,7 @@ function guardDirectory() {
   process.exit(1)
 }
 
-function tmuxAlive() {
-  return spawnSync("tmux", ["has-session", "-t", TMUX_SESSION]).status === 0
-}
-
-function run(cmd: string, args: string[]) {
-  const result = spawnSync(cmd, args, { encoding: "utf8" })
-  if (result.status !== 0) throw new Error(`${cmd} ${args.join(" ")} failed: ${result.stderr ?? ""}`)
-}
-
 const has = (cmd: string) => spawnSync("which", [cmd], { stdio: "ignore" }).status === 0
-const shellQuote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`
 const powerShellQuote = (value: string) => `'${value.replace(/'/g, "''")}'`
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 

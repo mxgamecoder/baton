@@ -1,0 +1,314 @@
+diff --git a/packages/cli/src/commands/commands.ts b/packages/cli/src/commands/commands.ts
+index ba3454b..fc085c5 100644
+--- a/packages/cli/src/commands/commands.ts
++++ b/packages/cli/src/commands/commands.ts
+@@ -36,7 +36,7 @@ const PermissionParams = {
+ }
+ 
+ const Root = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCODE_CLI_NAME : "opencode", {
+-  description: "OpenCode command line interface",
++  description: "baton — pass work between two OpenCode agents",
+   params: {
+     ...ServerParams,
+     ...PermissionParams,
+@@ -55,6 +55,18 @@ const Root = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCODE_CLI_NAME
+       Flag.optional,
+     ),
+     prompt: Flag.String("prompt").pipe(Flag.withDescription("Prompt to use"), Flag.optional),
++    peer: Flag.String("peer").pipe(
++      Flag.withDescription("baton: session ID to mirror in the right pane"),
++      Flag.optional,
++    ),
++    peerHome: Flag.String("peer-home").pipe(
++      Flag.withDescription("baton: the session that owns the left half"),
++      Flag.optional,
++    ),
++    peerFeed: Flag.String("peer-feed").pipe(
++      Flag.withDescription("baton: JSONL activity feed for the mirrored session"),
++      Flag.optional,
++    ),
+   },
+   commands: [
+     Spec.make("upgrade", {
+diff --git a/packages/cli/src/commands/handlers/default.ts b/packages/cli/src/commands/handlers/default.ts
+index cbf9d43..459e8ec 100644
+--- a/packages/cli/src/commands/handlers/default.ts
++++ b/packages/cli/src/commands/handlers/default.ts
+@@ -114,6 +114,9 @@ export default Runtime.handler(Commands, (input) =>
+         sessionID: sessionExists ? session : undefined,
+         newSessionID: sessionExists ? undefined : session,
+         prompt: Option.getOrUndefined(input.prompt),
++        peer: Option.getOrUndefined(input.peer),
++        peerHome: Option.getOrUndefined(input.peerHome),
++        peerFeed: Option.getOrUndefined(input.peerFeed),
+         auto: input.auto || input.yolo || input.dangerouslySkipPermissions,
+       },
+       config: {
+diff --git a/packages/tui/src/app.tsx b/packages/tui/src/app.tsx
+index 88939eb..175e061 100644
+--- a/packages/tui/src/app.tsx
++++ b/packages/tui/src/app.tsx
+@@ -108,6 +108,7 @@ import { StorageProvider, useStorage } from "./context/storage"
+ import { SessionTerminalsProvider } from "./context/session-terminals"
+ import { PanelProvider, usePanel } from "./context/panel"
+ import { SessionFrame } from "./component/session-frame"
++import { PeerPane } from "./component/peer-pane"
+ import { createTuiClipboard } from "./clipboard"
+ 
+ registerOpencodeSpinner()
+@@ -607,27 +608,58 @@ function App() {
+     if (!terminalTitleEnabled()) return
+ 
+     if (route.data.type === "home") {
+-      renderer.setTerminalTitle("OpenCode")
++      renderer.setTerminalTitle("baton")
+       return
+     }
+ 
+     if (route.data.type === "session") {
+       const title = session?.title
+       if (!title || isFallbackTitle(title)) {
+-        renderer.setTerminalTitle("OpenCode")
++        renderer.setTerminalTitle("baton")
+         return
+       }
+ 
+-      renderer.setTerminalTitle(`OC | ${title.length > 40 ? title.slice(0, 37) + "…" : title}`)
++      renderer.setTerminalTitle(`baton | ${title.length > 40 ? title.slice(0, 37) + "…" : title}`)
+       return
+     }
+ 
+     if (route.data.type === "plugin") {
+-      renderer.setTerminalTitle(`OC | ${route.data.name}`)
++      renderer.setTerminalTitle(`baton | ${route.data.name}`)
+     }
+   })
+ 
+   const args = useArgs()
++  // baton split: both halves are fixed at launch, so swapping cannot lose one.
++  const splitOther = () => {
++    if (!args.peer) return undefined
++    if (route.data.type !== "session") return args.peer
++    return route.data.sessionID === args.peer ? (args.peerHome ?? args.peer) : args.peer
++  }
++  Keymap.createLayer(() => ({
++    mode: "global",
++    enabled: () => splitOther() !== undefined,
++    commands: [
++      {
++        id: "split.left",
++        title: "Take the left agent",
++        run: () => {
++          if (args.peerHome) route.navigate({ type: "session", sessionID: args.peerHome })
++        },
++      },
++      {
++        id: "split.right",
++        title: "Take the right agent",
++        run: () => {
++          if (args.peer) route.navigate({ type: "session", sessionID: args.peer })
++        },
++      },
++    ],
++  }))
++  Keymap.createLayer(() => ({
++    mode: "global",
++    enabled: () => splitOther() !== undefined,
++    bindings: ["split.left", "split.right"],
++  }))
+   const startupPrompt = args.prompt ? { text: args.prompt, files: [], agents: [], pasted: [] } : undefined
+   onMount(() => {
+     batch(() => {
+@@ -1387,13 +1419,13 @@ function App() {
+         onMouseDragEnd={tabsResize.onMouseDragEnd}
+         onMouseUp={tabsResize.onMouseUp}
+       >
+-        <Show when={verticalTabsVisible()}>
++        <Show when={verticalTabsVisible() && !splitOther()}>
+           <SessionTabs orientation="vertical" width={tabsResize.size()} />
+         </Show>
+         <box flexGrow={1} minWidth={0} flexDirection="column">
+           <Show when={plugins.ready()}>
+             <box flexGrow={1} minHeight={0} flexDirection="column">
+-              <Show when={tabsVisible() && !tabsVertical()}>
++              <Show when={tabsVisible() && !tabsVertical() && !splitOther()}>
+                 <SessionTabs />
+               </Show>
+               <Switch>
+@@ -1403,10 +1435,26 @@ function App() {
+                 <Match when={route.data.type === "session"}>
+                   <Show when={route.data.type === "session" ? route.data.sessionID : undefined} keyed>
+                     {(sessionID) => (
+-                      <SessionFrame
+-                        sessionID={sessionID}
+-                        verticalTabsWidth={verticalTabsVisible() ? tabsResize.size() : 0}
+-                      />
++                      <Show
++                        when={splitOther()}
++                        fallback={
++                          <SessionFrame
++                            sessionID={sessionID}
++                            verticalTabsWidth={verticalTabsVisible() ? tabsResize.size() : 0}
++                          />
++                        }
++                      >
++                        {(peer) => (
++                          <box flexGrow={1} flexDirection="row" minWidth={0} minHeight={0}>
++                            <box flexGrow={1} flexBasis={0} minWidth={0} minHeight={0}>
++                              <SessionFrame sessionID={sessionID} verticalTabsWidth={0} compact />
++                            </box>
++                            <box width="42%" flexShrink={0} minWidth={0} minHeight={0}>
++                              <PeerPane sessionID={peer()} feed={args.peerFeed} />
++                            </box>
++                          </box>
++                        )}
++                      </Show>
+                     )}
+                   </Show>
+                 </Match>
+diff --git a/packages/tui/src/component/peer-pane.tsx b/packages/tui/src/component/peer-pane.tsx
+new file mode 100644
+index 0000000..e89503e
+--- /dev/null
++++ b/packages/tui/src/component/peer-pane.tsx
+@@ -0,0 +1,87 @@
++import { For, createSignal, onCleanup, onMount } from "solid-js"
++import { readFile } from "node:fs/promises"
++import path from "node:path"
++import { useTheme } from "../context/theme"
++
++interface Line {
++  readonly ts: number
++  readonly kind: string
++  readonly text: string
++}
++
++const SHOWN = 60
++
++/**
++ * Live mirror of the other agent in a baton pair. The relay plugin appends every
++ * turn boundary, tool call, changed file and assistant message to a JSONL feed;
++ * this pane tails that file. Read-only on purpose — the peer is driven from its
++ * own session (swap halves with alt+left / alt+right), so two prompts never fight
++ * for the keyboard.
++ */
++export function PeerPane(props: { sessionID: string; feed?: string /* feed directory */ }) {
++  const theme = useTheme()
++  const [lines, setLines] = createSignal<Line[]>([])
++
++  onMount(() => {
++    let alive = true
++    const tick = async () => {
++      if (!props.feed) return
++      const file = path.join(props.feed, `${props.sessionID.replace(/[^a-zA-Z0-9._-]/g, "_")}.jsonl`)
++      const raw = await readFile(file, "utf8").catch(() => undefined)
++      if (raw === undefined || !alive) return
++      const parsed = raw.split("\n").flatMap((line) => {
++        if (!line.trim()) return []
++        try {
++          return [JSON.parse(line) as Line]
++        } catch {
++          return []
++        }
++      })
++      setLines(parsed.slice(-SHOWN))
++    }
++    void tick()
++    const timer = setInterval(() => void tick(), 700)
++    onCleanup(() => {
++      alive = false
++      clearInterval(timer)
++    })
++  })
++
++  const color = (kind: string) => {
++    if (kind === "error") return theme.text.feedback.error.base
++    if (kind === "say") return theme.text.base
++    if (kind === "files") return theme.text.feedback.success.base
++    if (kind === "tool") return theme.text.feedback.warning.base
++    return theme.text.muted
++  }
++
++  return (
++    <box
++      flexDirection="column"
++      height="100%"
++      minWidth={0}
++      backgroundColor={theme.background.raised.base}
++      paddingLeft={1}
++      paddingRight={1}
++    >
++      <box flexShrink={0} paddingBottom={1}>
++        <text fg={theme.text.muted}>watching {props.sessionID.slice(0, 14)}</text>
++      </box>
++      <scrollbox flexGrow={1} minHeight={0} scrollbarOptions={{ visible: false }}>
++        <For each={lines()}>
++          {(line) => (
++            <box flexDirection="row">
++              <text fg={theme.text.muted}>{clock(line.ts)} </text>
++              <text fg={color(line.kind)} wrapMode="word">
++                {" "}
++                {line.kind.padEnd(5)} {line.text}
++              </text>
++            </box>
++          )}
++        </For>
++      </scrollbox>
++    </box>
++  )
++}
++
++const clock = (ts: number) => new Date(ts).toISOString().slice(11, 19)
+diff --git a/packages/tui/src/component/session-frame.tsx b/packages/tui/src/component/session-frame.tsx
+index ef267d8..3df0136 100644
+--- a/packages/tui/src/component/session-frame.tsx
++++ b/packages/tui/src/component/session-frame.tsx
+@@ -26,7 +26,7 @@ import { useToast } from "../ui/toast"
+ import { TerminalPane } from "./terminal-pane"
+ import { PanelHost } from "./panel-host"
+ 
+-export function SessionFrame(props: { sessionID: string; verticalTabsWidth: number }) {
++export function SessionFrame(props: { sessionID: string; verticalTabsWidth: number; compact?: boolean }) {
+   const sessions = useSessionTerminals()
+   const prompt = usePromptRef()
+   const config = useConfig()
+@@ -103,7 +103,8 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
+       }
+     }),
+   )
+-  const wide = createMemo(() => dimensions().width - props.verticalTabsWidth > 120)
++  // In a baton split the frame is only half the terminal, so never claim a sidebar.
++  const wide = createMemo(() => !props.compact && dimensions().width - props.verticalTabsWidth > 120)
+   const sidebarVisible = createMemo(() => {
+     if (data.session.get(props.sessionID)?.parentID) return false
+     if (sidebarOpen()) return true
+diff --git a/packages/tui/src/config/keybind.ts b/packages/tui/src/config/keybind.ts
+index 2f80c60..5616d47 100644
+--- a/packages/tui/src/config/keybind.ts
++++ b/packages/tui/src/config/keybind.ts
+@@ -95,6 +95,8 @@ export const Definitions = {
+   "session.sidebar.toggle": keybind("<leader>b", "Toggle sidebar"),
+   "pane.focus.left": keybind("<leader>left", "Focus session pane"),
+   "pane.focus.right": keybind("<leader>right", "Focus right pane"),
++  "split.left": keybind("alt+shift+left", "baton: take the left agent"),
++  "split.right": keybind("alt+shift+right", "baton: take the right agent"),
+   "terminal.select": keybind("<leader>down", "Select terminal"),
+   "terminal.toggle": keybind("<leader>t", "Toggle terminal pane"),
+   "terminal.close": keybind("<leader>up", "Close terminal pane"),
+diff --git a/packages/tui/src/context/args.tsx b/packages/tui/src/context/args.tsx
+index 8a9a852..e804334 100644
+--- a/packages/tui/src/context/args.tsx
++++ b/packages/tui/src/context/args.tsx
+@@ -8,6 +8,12 @@ export interface Args {
+   continue?: boolean
+   sessionID?: string
+   newSessionID?: string
++  /** baton: the other session in the pair, mirrored in the right pane. */
++  peer?: string
++  /** baton: the other half, fixed, so swapping survives a remount. */
++  peerHome?: string
++  /** baton: JSONL file the peer pane tails. */
++  peerFeed?: string
+   fork?: boolean
+   auto?: boolean
+ }
