@@ -1,0 +1,5 @@
+# Pinned opencode base. Baton does NOT track upstream dev — it builds against this SHA.
+repo=https://github.com/anomalyco/opencode.git
+version=2.0.28
+commit=c1615b1
+checkout=/home/lumora/opencode
