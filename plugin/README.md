@@ -25,7 +25,7 @@ binary on every launch.
 | Type | the focused half |
 | Click a pane | takes the keyboard for that half |
 | `F7` / `F8` | take the left / right half |
-| `/new` | opens a new session in the left half; Nova stays on the right |
+| `/new` | opens a new session in the left half — Nova stays visible on the right the whole time |
 | `Esc` | interrupts the running turn in the focused half |
 
 Typing in one half never sends input to the other, and never switches the other
@@ -97,6 +97,7 @@ baton             # start (or attach to) the pair
 baton status      # home, server, pair, recent messages
 baton restart     # restart baton's own server
 baton kill        # stop the pair and delete its sessions
+baton --version   # baton 0.4.5 (baton v2.0.28)
 ```
 
 A project that already has a pair keeps it. A pair from an older build (different

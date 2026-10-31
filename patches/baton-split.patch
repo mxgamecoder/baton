@@ -63,7 +63,7 @@ index e25084b..4b02110 100644
                                required: true,
                                custom: false,
 diff --git a/packages/tui/src/app.tsx b/packages/tui/src/app.tsx
-index 88939eb..b1449d9 100644
+index 88939eb..bac779f 100644
 --- a/packages/tui/src/app.tsx
 +++ b/packages/tui/src/app.tsx
 @@ -607,27 +607,66 @@ function App() {
@@ -137,7 +137,17 @@ index 88939eb..b1449d9 100644
    const startupPrompt = args.prompt ? { text: args.prompt, files: [], agents: [], pasted: [] } : undefined
    onMount(() => {
      batch(() => {
-@@ -1020,7 +1059,7 @@ function App() {
+@@ -758,7 +797,8 @@ function App() {
+               location.error?.location,
+             ),
+           })
+-          if (agent) local.agent.set(agent.id)
++          if (args.peer) local.agent.set("alex")
++          else if (agent) local.agent.set(agent.id)
+           if (model) local.model.set(model)
+           dialog.clear()
+         },
+@@ -1020,7 +1060,7 @@ function App() {
          ? [
              {
                name: "opencode.update",
@@ -146,7 +156,7 @@ index 88939eb..b1449d9 100644
                slash: { name: "update" },
                run: () => updater.open?.("manual"),
                category: "System",
-@@ -1387,13 +1426,13 @@ function App() {
+@@ -1387,26 +1427,96 @@ function App() {
          onMouseDragEnd={tabsResize.onMouseDragEnd}
          onMouseUp={tabsResize.onMouseUp}
        >
@@ -162,7 +172,25 @@ index 88939eb..b1449d9 100644
                  <SessionTabs />
                </Show>
                <Switch>
-@@ -1403,10 +1442,65 @@ function App() {
+                 <Match when={route.data.type === "home"}>
+-                  <Home />
++                  <Show when={splitOther()} fallback={<Home />}>
++                    <box flexGrow={1} flexDirection="row" minWidth={0} minHeight={0}>
++                      <box flexGrow={1} flexBasis={0} minWidth={0} minHeight={0}>
++                        <Home />
++                      </box>
++                      <box flexGrow={1} flexBasis={0} minWidth={0} minHeight={0}>
++                        <SessionFrame
++                          sessionID={args.peer!}
++                          verticalTabsWidth={0}
++                          compact
++                          active={false}
++                          onActivate={() => route.navigate({ type: "session", sessionID: args.peer! })}
++                        />
++                      </box>
++                    </box>
++                  </Show>
+                 </Match>
                  <Match when={route.data.type === "session"}>
                    <Show when={route.data.type === "session" ? route.data.sessionID : undefined} keyed>
                      {(sessionID) => (

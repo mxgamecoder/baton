@@ -66,6 +66,7 @@ const OPENCODE =
       ? BATON_BIN
       : "opencode")
 // Fixed names: the two halves are equal, but users cannot rename them.
+const BATON_VERSION = "0.4.5"
 const LEFT_AGENT = "alex"
 const RIGHT_AGENT = "nova"
 
@@ -170,6 +171,12 @@ async function model() {
   await ensureHome()
   console.log(`baton will use ${wanted}`)
   console.log("relaunch the pair (or `baton restart`) to pick it up")
+}
+
+async function version() {
+  const base = spawnSync(OPENCODE, ["--version"], { encoding: "utf8" })
+  const opencode = (base.stdout ?? "").trim() || "unknown"
+  console.log(`baton ${BATON_VERSION} (${opencode})`)
 }
 
 async function models() {
@@ -402,12 +409,13 @@ const powerShellQuote = (value: string) => `'${value.replace(/'/g, "''")}'`
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function usage() {
-  console.log("usage: baton [up|kill|status|auth|model|models|restart]")
+  console.log("usage: baton [up|kill|status|auth|model|models|restart|version]")
   process.exit(1)
 }
 
 // Dispatch last: every const helper above must be initialized before the command runs.
-if (command === "kill" || command === "down") await kill()
+if (command === "version" || command === "--version" || command === "-v") await version()
+else if (command === "kill" || command === "down") await kill()
 else if (command === "status") await status()
 else if (command === "auth" || command === "login") await auth()
 else if (command === "model") await model()
