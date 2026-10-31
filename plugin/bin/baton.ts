@@ -80,12 +80,23 @@ async function up() {
   const password = await ensurePassword()
   await ensureServer(password)
 
-  // Reuse the pair if it exists: the sessions stay on baton's server until `baton kill`.
+  // Reuse the pair only if it is ours and both sessions still exist. An old pair
+  // (from a previous version's agent names, or after a server wipe) is recreated.
   const existing = await store.readPair()
+  if (existing && existing.leftAgent === LEFT_AGENT && existing.rightAgent === RIGHT_AGENT) {
+    const [leftAlive, rightAlive] = await Promise.all([
+      sessionExists(password, existing.left),
+      sessionExists(password, existing.right),
+    ])
+    if (leftAlive && rightAlive) {
+      console.log(`paired  left=${existing.left}  right=${existing.right} (existing)`)
+      launch(password, existing.left, existing.right, store.root)
+      return
+    }
+  }
   if (existing) {
-    console.log(`paired  left=${existing.left}  right=${existing.right} (existing)`)
-    launch(password, existing.left, existing.right, store.root)
-    return
+    console.log("pair is stale (old agent names or missing sessions) — creating a fresh pair")
+    await store.clearPair()
   }
 
   const left = await createSession(password, LEFT_AGENT, "Alex")
@@ -156,6 +167,7 @@ async function model() {
   }
   config.model = wanted
   await writeFile(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`)
+  await ensureHome()
   console.log(`baton will use ${wanted}`)
   console.log("relaunch the pair (or `baton restart`) to pick it up")
 }
@@ -189,8 +201,14 @@ async function ensureHome() {
   if (config.$schema === undefined) config.$schema = "https://opencode.ai/config.json"
   if (needsWrite) await writeFile(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`)
   // Two fixed peers. Always refreshed from the package so users cannot rename them.
+  // The configured model is baked into their frontmatter, so a stale client model
+  // selection can never send the pair to some free fallback.
+  const model = typeof config.model === "string" ? config.model : undefined
   for (const file of ["alex.md", "nova.md"]) {
-    await copyFile(path.join(AGENTS_DIR, file), path.join(CONFIG_DIR, "agent", file)).catch(() => undefined)
+    const template = await readFile(path.join(AGENTS_DIR, file), "utf8").catch(() => undefined)
+    if (template === undefined) continue
+    const body = model ? template.replace("mode: primary", `model: ${model}\nmode: primary`) : template
+    await writeFile(path.join(CONFIG_DIR, "agent", file), body)
   }
   // Retire agent files from earlier versions.
   for (const stale of ["baton.md", "baton-left.md", "baton-right.md"]) {
@@ -301,6 +319,18 @@ async function restart() {
   spawnSync("systemctl", ["--user", "reset-failed", SERVER_UNIT], { stdio: "ignore" })
   await ensureServer(await ensurePassword())
   console.log("baton server restarted")
+}
+
+async function sessionExists(password: string, sessionID: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${URL_}/api/session/${encodeURIComponent(sessionID)}`, {
+      headers: authHeaders(password),
+      signal: AbortSignal.timeout(2000),
+    })
+    return response.ok
+  } catch {
+    return false
+  }
 }
 
 async function createSession(password: string, agent: string, title: string): Promise<string> {
