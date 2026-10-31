@@ -90,7 +90,7 @@ async function up() {
     ])
     if (leftAlive && rightAlive) {
       console.log(`paired  left=${existing.left}  right=${existing.right} (existing)`)
-      launch(password, existing.left, existing.right, store.root)
+      launch(password, existing.left, existing.right, store.root, await configuredModel())
       return
     }
   }
@@ -107,7 +107,7 @@ async function up() {
   if (!existsSync(path.join(DATA_DIR, "auth.json"))) {
     console.log("tip: no provider yet — run `baton auth` to add one, then `baton model` to pick a model")
   }
-  launch(password, left, right, store.root)
+  launch(password, left, right, store.root, await configuredModel())
 }
 
 async function kill() {
@@ -201,14 +201,8 @@ async function ensureHome() {
   if (config.$schema === undefined) config.$schema = "https://opencode.ai/config.json"
   if (needsWrite) await writeFile(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`)
   // Two fixed peers. Always refreshed from the package so users cannot rename them.
-  // The configured model is baked into their frontmatter, so a stale client model
-  // selection can never send the pair to some free fallback.
-  const model = typeof config.model === "string" ? config.model : undefined
   for (const file of ["alex.md", "nova.md"]) {
-    const template = await readFile(path.join(AGENTS_DIR, file), "utf8").catch(() => undefined)
-    if (template === undefined) continue
-    const body = model ? template.replace("mode: primary", `model: ${model}\nmode: primary`) : template
-    await writeFile(path.join(CONFIG_DIR, "agent", file), body)
+    await copyFile(path.join(AGENTS_DIR, file), path.join(CONFIG_DIR, "agent", file)).catch(() => undefined)
   }
   // Retire agent files from earlier versions.
   for (const stale of ["baton.md", "baton-left.md", "baton-right.md"]) {
@@ -321,6 +315,13 @@ async function restart() {
   console.log("baton server restarted")
 }
 
+async function configuredModel(): Promise<string | undefined> {
+  const raw = await readFile(CONFIG_FILE, "utf8").catch(() => undefined)
+  if (raw === undefined) return undefined
+  const config = parseConfig(raw, CONFIG_FILE)
+  return typeof config?.model === "string" ? config.model : undefined
+}
+
 async function sessionExists(password: string, sessionID: string): Promise<boolean> {
   try {
     const response = await fetch(`${URL_}/api/session/${encodeURIComponent(sessionID)}`, {
@@ -363,9 +364,11 @@ const authHeaders = (password: string) => ({
  * One client process, two agents: the left session is the one we attach to, the
  * right session is mirrored in baton's own pane. No tmux, no second install.
  */
-function launch(password: string, left: string, right: string, root: string) {
+function launch(password: string, left: string, right: string, root: string, model?: string) {
   const feed = path.join(root, "feed")
   const argv = ["--server", URL_, "-s", left, "--peer", right, "--peer-home", left, "--peer-feed", feed]
+  // Preselect the configured model so the client does not fall back to a free one.
+  if (model) argv.push("--model", model)
   if (process.env.BATON_NO_ATTACH) {
     console.log(`run in a terminal: ${OPENCODE} ${argv.join(" ")}`)
     return

@@ -1,5 +1,5 @@
 diff --git a/packages/cli/src/commands/commands.ts b/packages/cli/src/commands/commands.ts
-index ba3454b..fc085c5 100644
+index ba3454b..c27d38f 100644
 --- a/packages/cli/src/commands/commands.ts
 +++ b/packages/cli/src/commands/commands.ts
 @@ -36,7 +36,7 @@ const PermissionParams = {
@@ -11,10 +11,14 @@ index ba3454b..fc085c5 100644
    params: {
      ...ServerParams,
      ...PermissionParams,
-@@ -55,6 +55,18 @@ const Root = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCODE_CLI_NAME
+@@ -55,6 +55,22 @@ const Root = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCODE_CLI_NAME
        Flag.optional,
      ),
      prompt: Flag.String("prompt").pipe(Flag.withDescription("Prompt to use"), Flag.optional),
++    model: Flag.String("model").pipe(
++      Flag.withDescription("Model to preselect (provider/model)"),
++      Flag.optional,
++    ),
 +    peer: Flag.String("peer").pipe(
 +      Flag.withDescription("baton: session ID to mirror in the right pane"),
 +      Flag.optional,
@@ -31,13 +35,14 @@ index ba3454b..fc085c5 100644
    commands: [
      Spec.make("upgrade", {
 diff --git a/packages/cli/src/commands/handlers/default.ts b/packages/cli/src/commands/handlers/default.ts
-index cbf9d43..459e8ec 100644
+index cbf9d43..57b1823 100644
 --- a/packages/cli/src/commands/handlers/default.ts
 +++ b/packages/cli/src/commands/handlers/default.ts
-@@ -114,6 +114,9 @@ export default Runtime.handler(Commands, (input) =>
+@@ -114,6 +114,10 @@ export default Runtime.handler(Commands, (input) =>
          sessionID: sessionExists ? session : undefined,
          newSessionID: sessionExists ? undefined : session,
          prompt: Option.getOrUndefined(input.prompt),
++        model: Option.getOrUndefined(input.model),
 +        peer: Option.getOrUndefined(input.peer),
 +        peerHome: Option.getOrUndefined(input.peerHome),
 +        peerFeed: Option.getOrUndefined(input.peerFeed),
@@ -206,7 +211,7 @@ index 88939eb..c499e22 100644
                    </Show>
                  </Match>
 diff --git a/packages/tui/src/component/prompt/index.tsx b/packages/tui/src/component/prompt/index.tsx
-index 73f61f3..a9cd134 100644
+index 73f61f3..aeda941 100644
 --- a/packages/tui/src/component/prompt/index.tsx
 +++ b/packages/tui/src/component/prompt/index.tsx
 @@ -76,6 +76,8 @@ export type PromptProps = {
@@ -230,24 +235,15 @@ index 73f61f3..a9cd134 100644
      if (props.visible === false || disabled() || dialog.stack.length > 0) {
        if (input.focused) input.blur()
        input.focusable = false
-@@ -1156,7 +1163,15 @@ export function Prompt(props: PromptProps) {
+@@ -1156,6 +1163,7 @@ export function Prompt(props: PromptProps) {
      }
      const agent = local.agent.current()
      if (!agent) return false
--    const selection = local.model.selection()
 +    const sessionAgentID = props.sessionID ? data.session.get(props.sessionID)?.agent : undefined
-+    const sessionAgentModel = sessionAgentID
-+      ? (data.location.agent.list(currentLocation.ref ?? data.location.default()) ?? []).find(
-+          (item) => item.id === sessionAgentID,
-+        )?.model
-+      : undefined
-+    const selection = sessionAgentModel
-+      ? { providerID: sessionAgentModel.providerID, modelID: sessionAgentModel.id }
-+      : local.model.selection()
+     const selection = local.model.selection()
      if (!selection) {
        void promptModelWarning()
-       return false
-@@ -1276,8 +1291,9 @@ export function Prompt(props: PromptProps) {
+@@ -1276,8 +1284,9 @@ export function Prompt(props: PromptProps) {
          await data.session.sync(target)
          session = data.session.get(target)
        }
@@ -259,40 +255,21 @@ index 73f61f3..a9cd134 100644
        }
      }
      const commitModel = () => {
-@@ -1290,6 +1306,9 @@ export function Prompt(props: PromptProps) {
-     }
-     const commitSelection = async () => {
-       await prepareAgent()
-+      // An agent that declares its own model (baton's Alex/Nova) pins it: the
-+      // client's last-used model must not silently override it.
-+      if (sessionAgentModel) return
-       await commitModel()
-     }
-     if (!trimmed) {
-@@ -1545,13 +1564,18 @@ export function Prompt(props: PromptProps) {
+@@ -1545,10 +1554,12 @@ export function Prompt(props: PromptProps) {
        if (loading && !failed) return previous
  
        const agent = local.agent.current()
 +      const sessionAgent = props.sessionID ? data.session.get(props.sessionID)?.agent : undefined
 +      const agentID = sessionAgent ?? agent?.id
        const model = local.model.parsed()
-+      const pinned = sessionAgent
-+        ? (data.location.agent.list(location) ?? []).find((item) => item.id === sessionAgent)?.model
-+        : undefined
        return {
 -        agentLabel: agent ? Locale.titlecase(agent.id) : undefined,
 -        agentColor: agent ? local.agent.color(agent.id) : undefined,
--        modelLabel: model.model,
--        providerLabel: model.provider,
--        variant: local.model.variant.current(),
 +        agentLabel: agentID ? Locale.titlecase(agentID) : undefined,
 +        agentColor: agentID ? local.agent.color(agentID) : undefined,
-+        modelLabel: pinned?.id ?? model.model,
-+        providerLabel: pinned?.providerID ?? model.provider,
-+        variant: pinned ? undefined : local.model.variant.current(),
-       }
-     },
-     {
+         modelLabel: model.model,
+         providerLabel: model.provider,
+         variant: local.model.variant.current(),
 diff --git a/packages/tui/src/component/session-frame.tsx b/packages/tui/src/component/session-frame.tsx
 index ef267d8..0af1168 100644
 --- a/packages/tui/src/component/session-frame.tsx
