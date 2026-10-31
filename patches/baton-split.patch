@@ -49,8 +49,21 @@ index cbf9d43..57b1823 100644
          auto: input.auto || input.yolo || input.dangerouslySkipPermissions,
        },
        config: {
+diff --git a/packages/core/src/tool/plugin/websearch.ts b/packages/core/src/tool/plugin/websearch.ts
+index e25084b..4b02110 100644
+--- a/packages/core/src/tool/plugin/websearch.ts
++++ b/packages/core/src/tool/plugin/websearch.ts
+@@ -79,7 +79,7 @@ export const Plugin = {
+                           fields: [
+                             {
+                               key: "choice",
+-                              description: "Allow OpenCode to search the web for up-to-date information?",
++                              description: "Allow baton to search the web for up-to-date information?",
+                               type: "string",
+                               required: true,
+                               custom: false,
 diff --git a/packages/tui/src/app.tsx b/packages/tui/src/app.tsx
-index 88939eb..c499e22 100644
+index 88939eb..b1449d9 100644
 --- a/packages/tui/src/app.tsx
 +++ b/packages/tui/src/app.tsx
 @@ -607,27 +607,66 @@ function App() {
@@ -124,6 +137,15 @@ index 88939eb..c499e22 100644
    const startupPrompt = args.prompt ? { text: args.prompt, files: [], agents: [], pasted: [] } : undefined
    onMount(() => {
      batch(() => {
+@@ -1020,7 +1059,7 @@ function App() {
+         ? [
+             {
+               name: "opencode.update",
+-              title: "Update OpenCode",
++              title: "Update baton",
+               slash: { name: "update" },
+               run: () => updater.open?.("manual"),
+               category: "System",
 @@ -1387,13 +1426,13 @@ function App() {
          onMouseDragEnd={tabsResize.onMouseDragEnd}
          onMouseUp={tabsResize.onMouseUp}
@@ -210,6 +232,19 @@ index 88939eb..c499e22 100644
                      )}
                    </Show>
                  </Match>
+diff --git a/packages/tui/src/attention.ts b/packages/tui/src/attention.ts
+index 544668d..2220a33 100644
+--- a/packages/tui/src/attention.ts
++++ b/packages/tui/src/attention.ts
+@@ -32,7 +32,7 @@ type AttentionHost = Attention & {
+   dispose(): void
+ }
+ 
+-const DEFAULT_TITLE = "OpenCode"
++const DEFAULT_TITLE = "baton"
+ const TITLE_LIMIT = 80
+ const MESSAGE_LIMIT = 240
+ const BUILTIN_SOUNDS: Record<AttentionSoundName, string> = {
 diff --git a/packages/tui/src/component/prompt/index.tsx b/packages/tui/src/component/prompt/index.tsx
 index 73f61f3..aeda941 100644
 --- a/packages/tui/src/component/prompt/index.tsx
@@ -354,6 +389,19 @@ index ef267d8..0af1168 100644
              sidebarVisible={rightPane() === "sidebar"}
              onToggleSidebar={toggleSidebar}
              terminals={sessions.available()}
+diff --git a/packages/tui/src/config/index.tsx b/packages/tui/src/config/index.tsx
+index 92f595a..f002662 100644
+--- a/packages/tui/src/config/index.tsx
++++ b/packages/tui/src/config/index.tsx
+@@ -245,7 +245,7 @@ export const Info = Schema.Struct({
+   }),
+   animations: Schema.optional(Schema.Boolean).annotate({ description: "Enable interface animations" }),
+   highlights: Schema.optional(Schema.Boolean).annotate({
+-    description: "Show the release highlights once after OpenCode updates",
++    description: "Show the release highlights once after baton updates",
+   }),
+   mouse: Schema.optional(Schema.Boolean).annotate({ description: "Enable terminal mouse capture" }),
+   cursor: Schema.optional(Cursor),
 diff --git a/packages/tui/src/config/keybind.ts b/packages/tui/src/config/keybind.ts
 index 2f80c60..d18d26a 100644
 --- a/packages/tui/src/config/keybind.ts
@@ -384,6 +432,19 @@ index 8a9a852..e804334 100644
    fork?: boolean
    auto?: boolean
  }
+diff --git a/packages/tui/src/feature-plugins/sidebar/footer.tsx b/packages/tui/src/feature-plugins/sidebar/footer.tsx
+index b875d5f..6c18f92 100644
+--- a/packages/tui/src/feature-plugins/sidebar/footer.tsx
++++ b/packages/tui/src/feature-plugins/sidebar/footer.tsx
+@@ -54,7 +54,7 @@ export function SidebarOnboarding(props: { context: Plugin.Context; sessionID: s
+               ✕
+             </text>
+           </box>
+-          <text fg={props.context.theme.text.muted}>OpenCode includes free models so you can start immediately.</text>
++          <text fg={props.context.theme.text.muted}>baton — two agents, one project. F7 / F8 switches halves.</text>
+           <text fg={props.context.theme.text.muted}>
+             Connect from 75+ providers to use other models, including Claude, GPT, Gemini etc
+           </text>
 diff --git a/packages/tui/src/routes/session/index.tsx b/packages/tui/src/routes/session/index.tsx
 index a89ed12..baee16a 100644
 --- a/packages/tui/src/routes/session/index.tsx
@@ -772,3 +833,16 @@ index a89ed12..baee16a 100644
              () => undefined,
              (error) => error,
            )
+diff --git a/packages/tui/src/routes/session/permission.tsx b/packages/tui/src/routes/session/permission.tsx
+index 07338ab..4dd2dd0 100644
+--- a/packages/tui/src/routes/session/permission.tsx
++++ b/packages/tui/src/routes/session/permission.tsx
+@@ -325,7 +325,7 @@ function RejectPrompt(props: {
+           <text fg={theme.text.base}>Reject permission</text>
+         </box>
+         <box paddingLeft={1}>
+-          <text fg={theme.text.muted}>Tell OpenCode what to do differently</text>
++          <text fg={theme.text.muted}>Tell baton what to do differently</text>
+         </box>
+       </box>
+       <box

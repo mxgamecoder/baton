@@ -17,6 +17,9 @@ git apply patches/baton-split.patch
 | `packages/tui/src/app.tsx` | renders the split when `--peer` is set; split keybindings |
 | `packages/tui/src/component/session-frame.tsx` | `compact` / `active` / `onActivate`: half-width frame, keyboard ownership |
 | `packages/tui/src/routes/session/index.tsx` | sessionID override, active prompt ref, empty state |
+| `packages/core/src/tool/plugin/websearch.ts` | search permission says "baton", not "OpenCode" |
+| `packages/tui/src/routes/session/permission.tsx` | reject hint says "baton" |
+| `packages/tui/src/attention.ts`, `sidebar/footer.tsx` | notification + footer branding |
 | `packages/tui/src/component/prompt/index.tsx` | `active` prop: an inactive pane never takes the keyboard |
 | `packages/tui/src/context/args.tsx` | `peer`, `peerFeed` args |
 | `packages/tui/src/config/keybind.ts` | `split.left` / `split.right` (alt+shift+left/right) |
