@@ -65,8 +65,9 @@ const OPENCODE =
     : existsSync(BATON_BIN)
       ? BATON_BIN
       : "opencode")
-// Both halves are the same agent: either can build, watch, review or take over.
-const AGENT = "baton"
+// Fixed names: the two halves are equal, but users cannot rename them.
+const LEFT_AGENT = "alex"
+const RIGHT_AGENT = "nova"
 
 const directory = process.cwd()
 const command = process.argv[2] ?? "up"
@@ -87,9 +88,9 @@ async function up() {
     return
   }
 
-  const left = await createSession(password, AGENT, "baton · left")
-  const right = await createSession(password, AGENT, "baton · right")
-  await store.writePair({ left, right, leftAgent: AGENT, rightAgent: AGENT, created: Date.now() } satisfies Pair)
+  const left = await createSession(password, LEFT_AGENT, "Alex")
+  const right = await createSession(password, RIGHT_AGENT, "Nova")
+  await store.writePair({ left, right, leftAgent: LEFT_AGENT, rightAgent: RIGHT_AGENT, created: Date.now() } satisfies Pair)
   await store.reset()
   console.log(`paired  left=${left}  right=${right}`)
   if (!existsSync(path.join(DATA_DIR, "auth.json"))) {
@@ -187,11 +188,12 @@ async function ensureHome() {
   config.autoupdate = false
   if (config.$schema === undefined) config.$schema = "https://opencode.ai/config.json"
   if (needsWrite) await writeFile(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`)
-  // One symmetric agent, shared by both halves.
-  const destination = path.join(CONFIG_DIR, "agent", "baton.md")
-  if (!existsSync(destination)) await copyFile(path.join(AGENTS_DIR, "baton.md"), destination)
-  // Retire the old asymmetric pair if an earlier version wrote it into baton's home.
-  for (const stale of ["baton-left.md", "baton-right.md"]) {
+  // Two fixed peers. Always refreshed from the package so users cannot rename them.
+  for (const file of ["alex.md", "nova.md"]) {
+    await copyFile(path.join(AGENTS_DIR, file), path.join(CONFIG_DIR, "agent", file)).catch(() => undefined)
+  }
+  // Retire agent files from earlier versions.
+  for (const stale of ["baton.md", "baton-left.md", "baton-right.md"]) {
     await rm(path.join(CONFIG_DIR, "agent", stale), { force: true }).catch(() => undefined)
   }
 }

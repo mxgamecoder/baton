@@ -45,7 +45,7 @@ index cbf9d43..459e8ec 100644
        },
        config: {
 diff --git a/packages/tui/src/app.tsx b/packages/tui/src/app.tsx
-index 88939eb..5fc118f 100644
+index 88939eb..c499e22 100644
 --- a/packages/tui/src/app.tsx
 +++ b/packages/tui/src/app.tsx
 @@ -607,27 +607,66 @@ function App() {
@@ -135,7 +135,7 @@ index 88939eb..5fc118f 100644
                  <SessionTabs />
                </Show>
                <Switch>
-@@ -1403,10 +1442,40 @@ function App() {
+@@ -1403,10 +1442,65 @@ function App() {
                  <Match when={route.data.type === "session"}>
                    <Show when={route.data.type === "session" ? route.data.sessionID : undefined} keyed>
                      {(sessionID) => (
@@ -153,7 +153,7 @@ index 88939eb..5fc118f 100644
 +                        }
 +                      >
 +                        <box flexGrow={1} flexDirection="row" minWidth={0} minHeight={0}>
-+                          <box flexGrow={1} flexBasis={0} minWidth={0} minHeight={0}>
++                          <box flexGrow={1} flexBasis={0} minWidth={0} minHeight={0} position="relative">
 +                            <SessionFrame
 +                              sessionID={splitLeft() ?? sessionID}
 +                              verticalTabsWidth={0}
@@ -165,8 +165,22 @@ index 88939eb..5fc118f 100644
 +                                  route.navigate({ type: "session", sessionID: left })
 +                              }}
 +                            />
++                            <Show when={!(route.data.type === "session" && route.data.sessionID === (splitLeft() ?? sessionID))}>
++                              <box
++                                position="absolute"
++                                left={0}
++                                top={0}
++                                width="100%"
++                                height="100%"
++                                zIndex={20}
++                                onMouseDown={() => {
++                                  const left = splitLeft() ?? sessionID
++                                  route.navigate({ type: "session", sessionID: left })
++                                }}
++                              />
++                            </Show>
 +                          </box>
-+                          <box flexGrow={1} flexBasis={0} minWidth={0} minHeight={0}>
++                          <box flexGrow={1} flexBasis={0} minWidth={0} minHeight={0} position="relative">
 +                            <SessionFrame
 +                              sessionID={args.peer!}
 +                              verticalTabsWidth={0}
@@ -174,6 +188,17 @@ index 88939eb..5fc118f 100644
 +                              active={route.data.type === "session" && route.data.sessionID === args.peer}
 +                              onActivate={() => route.navigate({ type: "session", sessionID: args.peer! })}
 +                            />
++                            <Show when={!(route.data.type === "session" && route.data.sessionID === args.peer)}>
++                              <box
++                                position="absolute"
++                                left={0}
++                                top={0}
++                                width="100%"
++                                height="100%"
++                                zIndex={20}
++                                onMouseDown={() => route.navigate({ type: "session", sessionID: args.peer! })}
++                              />
++                            </Show>
 +                          </box>
 +                        </box>
 +                      </Show>
@@ -181,7 +206,7 @@ index 88939eb..5fc118f 100644
                    </Show>
                  </Match>
 diff --git a/packages/tui/src/component/prompt/index.tsx b/packages/tui/src/component/prompt/index.tsx
-index 73f61f3..7e48ff0 100644
+index 73f61f3..5a1bb3f 100644
 --- a/packages/tui/src/component/prompt/index.tsx
 +++ b/packages/tui/src/component/prompt/index.tsx
 @@ -76,6 +76,8 @@ export type PromptProps = {
@@ -205,6 +230,21 @@ index 73f61f3..7e48ff0 100644
      if (props.visible === false || disabled() || dialog.stack.length > 0) {
        if (input.focused) input.blur()
        input.focusable = false
+@@ -1545,10 +1552,12 @@ export function Prompt(props: PromptProps) {
+       if (loading && !failed) return previous
+ 
+       const agent = local.agent.current()
++      const sessionAgent = props.sessionID ? data.session.get(props.sessionID)?.agent : undefined
++      const agentID = sessionAgent ?? agent?.id
+       const model = local.model.parsed()
+       return {
+-        agentLabel: agent ? Locale.titlecase(agent.id) : undefined,
+-        agentColor: agent ? local.agent.color(agent.id) : undefined,
++        agentLabel: agentID ? Locale.titlecase(agentID) : undefined,
++        agentColor: agentID ? local.agent.color(agentID) : undefined,
+         modelLabel: model.model,
+         providerLabel: model.provider,
+         variant: local.model.variant.current(),
 diff --git a/packages/tui/src/component/session-frame.tsx b/packages/tui/src/component/session-frame.tsx
 index ef267d8..0af1168 100644
 --- a/packages/tui/src/component/session-frame.tsx
@@ -320,7 +360,7 @@ index 8a9a852..e804334 100644
    auto?: boolean
  }
 diff --git a/packages/tui/src/routes/session/index.tsx b/packages/tui/src/routes/session/index.tsx
-index a89ed12..0b6c75a 100644
+index a89ed12..baee16a 100644
 --- a/packages/tui/src/routes/session/index.tsx
 +++ b/packages/tui/src/routes/session/index.tsx
 @@ -152,6 +152,10 @@ export function Session(props: {
@@ -511,11 +551,15 @@ index a89ed12..0b6c75a 100644
                all: true,
                signal: request.signal,
                beforePublish: commit,
-@@ -920,12 +929,12 @@ export function Session(props: {
+@@ -920,12 +929,16 @@ export function Session(props: {
        group: "Session",
        slash: { name: "rename", arguments: true as const },
        run: (input?: string) => {
 -        if (input === undefined) return DialogSessionRename.show(dialog, route.sessionID, session()?.title)
++        if (args.peer) {
++          toast.show({ message: "Alex and Nova are fixed — a baton pair cannot be renamed.", variant: "warning" })
++          return
++        }
 +        if (input === undefined) return DialogSessionRename.show(dialog, sessionID, session()?.title)
          const title = input.trim()
          void (
@@ -527,7 +571,7 @@ index a89ed12..0b6c75a 100644
          ).catch((error) => toast.error(error))
        },
      },
-@@ -937,7 +946,7 @@ export function Session(props: {
+@@ -937,7 +950,7 @@ export function Session(props: {
        run: () => {
          dialog.replace(() => (
            <DialogTimeline
@@ -536,7 +580,7 @@ index a89ed12..0b6c75a 100644
              onMove={jumpToMessage}
              setPrompt={(value) => promptRef.current?.set(value)}
            />
-@@ -952,7 +961,7 @@ export function Session(props: {
+@@ -952,7 +965,7 @@ export function Session(props: {
        run: () => {
          dialog.replace(() => (
            <DialogFork
@@ -545,7 +589,7 @@ index a89ed12..0b6c75a 100644
              onMove={(messageID) => {
                if (!messageID) return
                jumpToMessage(messageID)
-@@ -972,7 +981,7 @@ export function Session(props: {
+@@ -972,7 +985,7 @@ export function Session(props: {
          const selection = local.model.current()
          void data.session
            .compact({
@@ -554,7 +598,7 @@ index a89ed12..0b6c75a 100644
              model: selection
                ? {
                    providerID: selection.providerID,
-@@ -999,7 +1008,6 @@ export function Session(props: {
+@@ -999,7 +1012,6 @@ export function Session(props: {
            dialog.clear()
            return
          }
@@ -562,7 +606,7 @@ index a89ed12..0b6c75a 100644
          const target = prompt()
          void (async () => {
            if (pendingDeliveries().has(message.id)) {
-@@ -1025,7 +1033,7 @@ export function Session(props: {
+@@ -1025,7 +1037,7 @@ export function Session(props: {
        slash: { name: "redo" },
        run: () => {
          void (async () => {
@@ -571,7 +615,7 @@ index a89ed12..0b6c75a 100644
              () => undefined,
              (error) => error,
            )
-@@ -1101,7 +1109,7 @@ export function Session(props: {
+@@ -1101,7 +1113,7 @@ export function Session(props: {
        group: "Session",
        palette: undefined,
        run: () => {
@@ -580,7 +624,7 @@ index a89ed12..0b6c75a 100644
          if (!messages || !messages.length) return
  
          // Find the most recent user message with non-ignored, non-synthetic text parts
-@@ -1190,7 +1198,7 @@ export function Session(props: {
+@@ -1190,7 +1202,7 @@ export function Session(props: {
        group: "Session",
        run: () => {
          clipboard
@@ -589,7 +633,7 @@ index a89ed12..0b6c75a 100644
            .then(() => toast.show({ message: "Session ID copied to clipboard!", variant: "success" }))
            .catch(() => toast.show({ message: "Failed to copy session ID", variant: "error" }))
          dialog.clear()
-@@ -1267,7 +1275,7 @@ export function Session(props: {
+@@ -1267,7 +1279,7 @@ export function Session(props: {
        group: "Session",
        palette: undefined,
        run: () => {
@@ -598,7 +642,7 @@ index a89ed12..0b6c75a 100644
          dialog.clear()
        },
      },
-@@ -1320,22 +1328,24 @@ export function Session(props: {
+@@ -1320,22 +1332,24 @@ export function Session(props: {
  
    Keymap.createLayer(() => ({
      mode: "global",
@@ -625,7 +669,7 @@ index a89ed12..0b6c75a 100644
        () => {
          setComposer("open", false)
          clearMessageNavigation()
-@@ -1378,7 +1388,7 @@ export function Session(props: {
+@@ -1378,7 +1392,7 @@ export function Session(props: {
              return terminalHeight()
            },
          },
@@ -634,7 +678,7 @@ index a89ed12..0b6c75a 100644
          thinkingMode,
          markdownMode,
          groupExploration,
-@@ -1430,11 +1440,22 @@ export function Session(props: {
+@@ -1430,11 +1444,22 @@ export function Session(props: {
                    updateAwayFromBottom()
                  }}
                >
@@ -658,7 +702,7 @@ index a89ed12..0b6c75a 100644
                        boundaryID={boundaries()[index() + hidden()]}
                      />
                    )}
-@@ -1475,9 +1496,9 @@ export function Session(props: {
+@@ -1475,9 +1500,9 @@ export function Session(props: {
                <Show when={!composer.open && !disabled() && queuedPrompts().length > 0}>
                  <QueuedPromptDock prompts={queuedPrompts()} onOpen={openQueuedPrompts} />
                </Show>
@@ -670,7 +714,7 @@ index a89ed12..0b6c75a 100644
                  open={composer.open || (!!session()?.parentID && forms().length === 0)}
                  defaultTab={composer.tab ?? (session()?.parentID ? "subagents" : undefined)}
                  onClose={() => {
-@@ -1520,12 +1541,13 @@ export function Session(props: {
+@@ -1520,12 +1545,13 @@ export function Session(props: {
                    <SessionLocationMissing
                      directory={session()!.location.directory}
                      projectID={session()!.projectID}
@@ -685,7 +729,7 @@ index a89ed12..0b6c75a 100644
                      ref={bind}
                      muted={props.promptMuted}
                      onSubmit={() => {
-@@ -1536,7 +1558,7 @@ export function Session(props: {
+@@ -1536,7 +1562,7 @@ export function Session(props: {
                        if (!next) return false
                        return mutatePending("steer", next.id)
                      }}
@@ -694,7 +738,7 @@ index a89ed12..0b6c75a 100644
                    />
                  </Match>
                </Switch>
-@@ -2147,7 +2169,7 @@ function RevertMessage(props: {
+@@ -2147,7 +2173,7 @@ function RevertMessage(props: {
        onMouseUp={() => {
          if (renderer.getSelection()?.getSelectedText()) return
          void (async () => {

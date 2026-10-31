@@ -12,7 +12,7 @@ steer it mid-task — or take over. Built on [OpenCode](https://github.com/anoma
 | | |
 |---|---|
 | **Both agents are equal** | Either can build, review, watch or take over. There is no fixed "builder" and no fixed "inspector" — the pair decides per task. |
-| **Split view** | Two full, editable agent panes side by side. `F7` / `F8` moves the keyboard between them; both keep their own session, transcript and prompt. |
+| **Split view** | Two full, editable panes: **Alex** (left) and **Nova** (right). `F7` / `F8` moves the keyboard; clicking a pane takes it too. Both keep their own session, transcript and prompt. |
 | **`baton.watch`** | One agent reads what the other is doing live: its tool calls, files it touched, what it said. |
 | **`baton.steer`** | Redirect the other agent while it works ("fix the parser, not the tests"). Applies at the next step; `interrupt: true` stops the current step. |
 | **`baton.handoff` / `done`** | Pass actionable work, or close a thread with a verified result. Delivered automatically at the partner's next turn. |
