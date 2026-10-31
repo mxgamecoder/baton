@@ -2,7 +2,7 @@
 
 `baton-split.patch` is the complete change baton makes to the pinned OpenCode source
 (`VENDOR.lock`). It adds a second, read-only pane that mirrors the partner agent, the
-`--peer` / `--peer-feed` flags, and the `split.left` / `split.right` keys.
+`--peer` / `--peer-home` / `--peer-feed` flags, two editable panes, and the `split.left` / `split.right` keys (F7 / F8).
 
 Apply it to a clean checkout at the pinned commit:
 
@@ -14,9 +14,10 @@ git apply patches/baton-split.patch
 
 | File | Change |
 |---|---|
-| `packages/tui/src/component/peer-pane.tsx` | new: tails the peer feed and renders it |
 | `packages/tui/src/app.tsx` | renders the split when `--peer` is set; split keybindings |
-| `packages/tui/src/component/session-frame.tsx` | `compact` prop: no sidebar when the frame is half-width |
+| `packages/tui/src/component/session-frame.tsx` | `compact` / `active` / `onActivate`: half-width frame, keyboard ownership |
+| `packages/tui/src/routes/session/index.tsx` | sessionID override, active prompt ref, empty state |
+| `packages/tui/src/component/prompt/index.tsx` | `active` prop: an inactive pane never takes the keyboard |
 | `packages/tui/src/context/args.tsx` | `peer`, `peerFeed` args |
 | `packages/tui/src/config/keybind.ts` | `split.left` / `split.right` (alt+shift+left/right) |
 | `packages/cli/src/commands/commands.ts` | `--peer` / `--peer-feed` flags |

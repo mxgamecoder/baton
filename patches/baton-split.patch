@@ -45,18 +45,10 @@ index cbf9d43..459e8ec 100644
        },
        config: {
 diff --git a/packages/tui/src/app.tsx b/packages/tui/src/app.tsx
-index 88939eb..175e061 100644
+index 88939eb..5fc118f 100644
 --- a/packages/tui/src/app.tsx
 +++ b/packages/tui/src/app.tsx
-@@ -108,6 +108,7 @@ import { StorageProvider, useStorage } from "./context/storage"
- import { SessionTerminalsProvider } from "./context/session-terminals"
- import { PanelProvider, usePanel } from "./context/panel"
- import { SessionFrame } from "./component/session-frame"
-+import { PeerPane } from "./component/peer-pane"
- import { createTuiClipboard } from "./clipboard"
- 
- registerOpencodeSpinner()
-@@ -607,27 +608,58 @@ function App() {
+@@ -607,27 +607,66 @@ function App() {
      if (!terminalTitleEnabled()) return
  
      if (route.data.type === "home") {
@@ -86,6 +78,14 @@ index 88939eb..175e061 100644
  
    const args = useArgs()
 +  // baton split: both halves are fixed at launch, so swapping cannot lose one.
++  const splitHome = () => args.peerHome
++  // A session opened with /new takes the left half; the partner stays on the right.
++  const splitLeft = () => {
++    const home = splitHome() ?? (route.data.type === "session" ? route.data.sessionID : undefined)
++    if (route.data.type !== "session") return home
++    if (route.data.sessionID === home || route.data.sessionID === args.peer) return home
++    return route.data.sessionID
++  }
 +  const splitOther = () => {
 +    if (!args.peer) return undefined
 +    if (route.data.type !== "session") return args.peer
@@ -119,7 +119,7 @@ index 88939eb..175e061 100644
    const startupPrompt = args.prompt ? { text: args.prompt, files: [], agents: [], pasted: [] } : undefined
    onMount(() => {
      batch(() => {
-@@ -1387,13 +1419,13 @@ function App() {
+@@ -1387,13 +1426,13 @@ function App() {
          onMouseDragEnd={tabsResize.onMouseDragEnd}
          onMouseUp={tabsResize.onMouseUp}
        >
@@ -135,7 +135,7 @@ index 88939eb..175e061 100644
                  <SessionTabs />
                </Show>
                <Switch>
-@@ -1403,10 +1435,26 @@ function App() {
+@@ -1403,10 +1442,40 @@ function App() {
                  <Match when={route.data.type === "session"}>
                    <Show when={route.data.type === "session" ? route.data.sessionID : undefined} keyed>
                      {(sessionID) => (
@@ -152,127 +152,80 @@ index 88939eb..175e061 100644
 +                          />
 +                        }
 +                      >
-+                        {(peer) => (
-+                          <box flexGrow={1} flexDirection="row" minWidth={0} minHeight={0}>
-+                            <box flexGrow={1} flexBasis={0} minWidth={0} minHeight={0}>
-+                              <SessionFrame sessionID={sessionID} verticalTabsWidth={0} compact />
-+                            </box>
-+                            <box width="42%" flexShrink={0} minWidth={0} minHeight={0}>
-+                              <PeerPane sessionID={peer()} feed={args.peerFeed} />
-+                            </box>
++                        <box flexGrow={1} flexDirection="row" minWidth={0} minHeight={0}>
++                          <box flexGrow={1} flexBasis={0} minWidth={0} minHeight={0}>
++                            <SessionFrame
++                              sessionID={splitLeft() ?? sessionID}
++                              verticalTabsWidth={0}
++                              compact
++                              active={route.data.type === "session" && route.data.sessionID === (splitLeft() ?? sessionID)}
++                              onActivate={() => {
++                                const left = splitLeft() ?? sessionID
++                                if (route.data.type === "session" && route.data.sessionID !== left)
++                                  route.navigate({ type: "session", sessionID: left })
++                              }}
++                            />
 +                          </box>
-+                        )}
++                          <box flexGrow={1} flexBasis={0} minWidth={0} minHeight={0}>
++                            <SessionFrame
++                              sessionID={args.peer!}
++                              verticalTabsWidth={0}
++                              compact
++                              active={route.data.type === "session" && route.data.sessionID === args.peer}
++                              onActivate={() => route.navigate({ type: "session", sessionID: args.peer! })}
++                            />
++                          </box>
++                        </box>
 +                      </Show>
                      )}
                    </Show>
                  </Match>
-diff --git a/packages/tui/src/component/peer-pane.tsx b/packages/tui/src/component/peer-pane.tsx
-new file mode 100644
-index 0000000..e89503e
---- /dev/null
-+++ b/packages/tui/src/component/peer-pane.tsx
-@@ -0,0 +1,87 @@
-+import { For, createSignal, onCleanup, onMount } from "solid-js"
-+import { readFile } from "node:fs/promises"
-+import path from "node:path"
-+import { useTheme } from "../context/theme"
-+
-+interface Line {
-+  readonly ts: number
-+  readonly kind: string
-+  readonly text: string
-+}
-+
-+const SHOWN = 60
-+
-+/**
-+ * Live mirror of the other agent in a baton pair. The relay plugin appends every
-+ * turn boundary, tool call, changed file and assistant message to a JSONL feed;
-+ * this pane tails that file. Read-only on purpose — the peer is driven from its
-+ * own session (swap halves with alt+left / alt+right), so two prompts never fight
-+ * for the keyboard.
-+ */
-+export function PeerPane(props: { sessionID: string; feed?: string /* feed directory */ }) {
-+  const theme = useTheme()
-+  const [lines, setLines] = createSignal<Line[]>([])
-+
-+  onMount(() => {
-+    let alive = true
-+    const tick = async () => {
-+      if (!props.feed) return
-+      const file = path.join(props.feed, `${props.sessionID.replace(/[^a-zA-Z0-9._-]/g, "_")}.jsonl`)
-+      const raw = await readFile(file, "utf8").catch(() => undefined)
-+      if (raw === undefined || !alive) return
-+      const parsed = raw.split("\n").flatMap((line) => {
-+        if (!line.trim()) return []
-+        try {
-+          return [JSON.parse(line) as Line]
-+        } catch {
-+          return []
-+        }
-+      })
-+      setLines(parsed.slice(-SHOWN))
+diff --git a/packages/tui/src/component/prompt/index.tsx b/packages/tui/src/component/prompt/index.tsx
+index 73f61f3..7e48ff0 100644
+--- a/packages/tui/src/component/prompt/index.tsx
++++ b/packages/tui/src/component/prompt/index.tsx
+@@ -76,6 +76,8 @@ export type PromptProps = {
+   visible?: boolean
+   disabled?: boolean
+   muted?: boolean
++  /** baton split: false keeps this prompt from taking the keyboard. */
++  active?: boolean
+   onSubmit?: () => void
+   onEmptySubmit?: () => boolean | Promise<boolean>
+   ref?: (ref: PromptRef | undefined) => void
+@@ -733,6 +735,11 @@ export function Prompt(props: PromptProps) {
+ 
+   createEffect(() => {
+     if (!input || input.isDestroyed) return
++    if (props.active === false) {
++      if (input.focused) input.blur()
++      input.focusable = false
++      return
 +    }
-+    void tick()
-+    const timer = setInterval(() => void tick(), 700)
-+    onCleanup(() => {
-+      alive = false
-+      clearInterval(timer)
-+    })
-+  })
-+
-+  const color = (kind: string) => {
-+    if (kind === "error") return theme.text.feedback.error.base
-+    if (kind === "say") return theme.text.base
-+    if (kind === "files") return theme.text.feedback.success.base
-+    if (kind === "tool") return theme.text.feedback.warning.base
-+    return theme.text.muted
-+  }
-+
-+  return (
-+    <box
-+      flexDirection="column"
-+      height="100%"
-+      minWidth={0}
-+      backgroundColor={theme.background.raised.base}
-+      paddingLeft={1}
-+      paddingRight={1}
-+    >
-+      <box flexShrink={0} paddingBottom={1}>
-+        <text fg={theme.text.muted}>watching {props.sessionID.slice(0, 14)}</text>
-+      </box>
-+      <scrollbox flexGrow={1} minHeight={0} scrollbarOptions={{ visible: false }}>
-+        <For each={lines()}>
-+          {(line) => (
-+            <box flexDirection="row">
-+              <text fg={theme.text.muted}>{clock(line.ts)} </text>
-+              <text fg={color(line.kind)} wrapMode="word">
-+                {" "}
-+                {line.kind.padEnd(5)} {line.text}
-+              </text>
-+            </box>
-+          )}
-+        </For>
-+      </scrollbox>
-+    </box>
-+  )
-+}
-+
-+const clock = (ts: number) => new Date(ts).toISOString().slice(11, 19)
+     if (props.visible === false || disabled() || dialog.stack.length > 0) {
+       if (input.focused) input.blur()
+       input.focusable = false
 diff --git a/packages/tui/src/component/session-frame.tsx b/packages/tui/src/component/session-frame.tsx
-index ef267d8..3df0136 100644
+index ef267d8..0af1168 100644
 --- a/packages/tui/src/component/session-frame.tsx
 +++ b/packages/tui/src/component/session-frame.tsx
-@@ -26,7 +26,7 @@ import { useToast } from "../ui/toast"
+@@ -26,7 +26,14 @@ import { useToast } from "../ui/toast"
  import { TerminalPane } from "./terminal-pane"
  import { PanelHost } from "./panel-host"
  
 -export function SessionFrame(props: { sessionID: string; verticalTabsWidth: number }) {
-+export function SessionFrame(props: { sessionID: string; verticalTabsWidth: number; compact?: boolean }) {
++export function SessionFrame(props: {
++  sessionID: string
++  verticalTabsWidth: number
++  compact?: boolean
++  /** baton split: false for the mirrored half (view only, no keyboard). */
++  active?: boolean
++  onActivate?: () => void
++}) {
    const sessions = useSessionTerminals()
    const prompt = usePromptRef()
    const config = useConfig()
-@@ -103,7 +103,8 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
+@@ -103,7 +110,8 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
        }
      }),
    )
@@ -282,16 +235,70 @@ index ef267d8..3df0136 100644
    const sidebarVisible = createMemo(() => {
      if (data.session.get(props.sessionID)?.parentID) return false
      if (sidebarOpen()) return true
+@@ -130,6 +138,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
+   }
+   const focusSession = () => {
+     if (fullscreen()) return
++    props.onActivate?.()
+     // Permission prompts replace the input, so returning focus must not depend on it.
+     if (activePane() === "right") renderer.currentFocusedRenderable?.blur()
+     setActivePane("session")
+@@ -161,9 +170,20 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
+     setRestoreTerminalFocus(false)
+     focusSession()
+   })
++  createEffect(
++    on(
++      () => props.active,
++      (active) => {
++        if (!active) return
++        // Let the child bind its prompt before we hand it the keyboard.
++        requestAnimationFrame(() => requestAnimationFrame(() => focusSession()))
++      },
++    ),
++  )
+   Keymap.createLayer(() => ({
+     mode: "global",
+-    enabled: () => (rightPane() === "terminal" || activePanel() !== undefined) && dialog.stack.length === 0,
++    enabled: () =>
++      props.active !== false && (rightPane() === "terminal" || activePanel() !== undefined) && dialog.stack.length === 0,
+     commands: [
+       {
+         id: "pane.focus.left",
+@@ -182,6 +202,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
+   // Pane management stays reachable from either input scope.
+   Keymap.createLayer(() => ({
+     mode: "global",
++    enabled: () => props.active !== false,
+     commands: [
+       {
+         id: "session.sidebar.toggle",
+@@ -284,11 +305,13 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
+           setSessionWidth(this.width)
+         }}
+       >
+-        <InteractivityProvider enabled={activePane() === "session" && !fullscreen()}>
++        <InteractivityProvider enabled={props.active !== false && activePane() === "session" && !fullscreen()}>
+           <Session
++            sessionID={props.compact ? props.sessionID : undefined}
++            active={props.active !== false}
+             scrollRef={(value) => (sessionScroll = value)}
+             verticalTabsWidth={props.verticalTabsWidth}
+-            promptMuted={activePane() !== "session"}
++            promptMuted={props.active === false || activePane() !== "session"}
+             sidebarVisible={rightPane() === "sidebar"}
+             onToggleSidebar={toggleSidebar}
+             terminals={sessions.available()}
 diff --git a/packages/tui/src/config/keybind.ts b/packages/tui/src/config/keybind.ts
-index 2f80c60..5616d47 100644
+index 2f80c60..d18d26a 100644
 --- a/packages/tui/src/config/keybind.ts
 +++ b/packages/tui/src/config/keybind.ts
 @@ -95,6 +95,8 @@ export const Definitions = {
    "session.sidebar.toggle": keybind("<leader>b", "Toggle sidebar"),
    "pane.focus.left": keybind("<leader>left", "Focus session pane"),
    "pane.focus.right": keybind("<leader>right", "Focus right pane"),
-+  "split.left": keybind("alt+shift+left", "baton: take the left agent"),
-+  "split.right": keybind("alt+shift+right", "baton: take the right agent"),
++  "split.left": keybind("f7", "baton: take the left agent"),
++  "split.right": keybind("f8", "baton: take the right agent"),
    "terminal.select": keybind("<leader>down", "Select terminal"),
    "terminal.toggle": keybind("<leader>t", "Toggle terminal pane"),
    "terminal.close": keybind("<leader>up", "Close terminal pane"),
@@ -312,3 +319,387 @@ index 8a9a852..e804334 100644
    fork?: boolean
    auto?: boolean
  }
+diff --git a/packages/tui/src/routes/session/index.tsx b/packages/tui/src/routes/session/index.tsx
+index a89ed12..0b6c75a 100644
+--- a/packages/tui/src/routes/session/index.tsx
++++ b/packages/tui/src/routes/session/index.tsx
+@@ -152,6 +152,10 @@ export function Session(props: {
+   visibleTerminalID?: string
+   onTerminalPicker?: (show: (() => void) | undefined) => void
+   width?: number
++  /** baton: when set, this frame renders this session instead of the routed one. */
++  sessionID?: string
++  /** baton: false when this is the mirrored half (no keyboard, no prompt focus). */
++  active?: boolean
+ }) {
+   const setEpilogue = useEpilogue()
+   const clipboard = useClipboard()
+@@ -160,7 +164,7 @@ export function Session(props: {
+     await writeFile(file, content)
+   }
+   const route = useRouteData("session")
+-  const sessionID = route.sessionID
++  const sessionID = props.sessionID ?? route.sessionID
+   const { navigate } = useRoute()
+   const data = useData()
+   const local = useLocal()
+@@ -169,8 +173,8 @@ export function Session(props: {
+   const config = configState.data
+   const theme = useTheme()
+   const promptRef = usePromptRef()
+-  const session = createMemo(() => data.session.get(route.sessionID))
+-  const messages = () => data.session.message.list(route.sessionID)
++  const session = createMemo(() => data.session.get(sessionID))
++  const messages = () => data.session.message.list(sessionID)
+   const messageIndexes = createMemo(() => new Map(messages().map((message, index) => [message.id, index])))
+   const legacy = createMemo(() => legacyTurns(messages()))
+   const messagesBeforeRevert = () => {
+@@ -197,11 +201,11 @@ export function Session(props: {
+   onCleanup(() => setEpilogue())
+   const descendantSessionIDs = createMemo(() => {
+     if (session()?.parentID) return []
+-    return data.session.family(route.sessionID).filter((id) => id !== route.sessionID)
++    return data.session.family(sessionID).filter((id) => id !== sessionID)
+   })
+   const permissions = createMemo(() => {
+     if (session()?.parentID) return []
+-    return [route.sessionID, ...descendantSessionIDs()].flatMap(
++    return [sessionID, ...descendantSessionIDs()].flatMap(
+       (sessionID) => data.session.permission.list(sessionID) ?? [],
+     )
+   })
+@@ -209,12 +213,12 @@ export function Session(props: {
+   const forms = createMemo(() => {
+     const global = data.session.form.list("global", location()) ?? []
+     if (session()?.parentID) return global
+-    return [route.sessionID, ...descendantSessionIDs()]
++    return [sessionID, ...descendantSessionIDs()]
+       .flatMap((sessionID) => data.session.form.list(sessionID) ?? [])
+       .concat(global)
+   })
+   const pendingUsers = createMemo(() =>
+-    data.session.pending.list(route.sessionID).flatMap((item) => (item.type === "user" ? [item] : [])),
++    data.session.pending.list(sessionID).flatMap((item) => (item.type === "user" ? [item] : [])),
+   )
+   const pendingDeliveries = createMemo(() => new Map(pendingUsers().map((item) => [item.id, item.delivery])))
+   const queuedPrompts = createMemo(() =>
+@@ -249,7 +253,8 @@ export function Session(props: {
+ 
+   Keymap.createLayer(() => ({
+     priority: 10,
+-    enabled: () => props.sidebarVisible && dimensions().width - props.verticalTabsWidth <= 120 && !disabled(),
++    enabled: () =>
++      props.active !== false && props.sidebarVisible && dimensions().width - props.verticalTabsWidth <= 120 && !disabled(),
+     commands: [{ bind: "escape,ctrl+c", title: "Close sidebar", group: "Session", run: props.onToggleSidebar }],
+   }))
+   const contentWidth = createMemo(() => (props.width ?? dimensions().width - props.verticalTabsWidth) - 4)
+@@ -279,7 +284,7 @@ export function Session(props: {
+   const editor = useEditorContext()
+   const [rowsSynced, setRowsSynced] = createSignal(false)
+   const rows = createSessionRows(
+-    () => route.sessionID,
++    () => sessionID,
+     (id) => {
+       if (id === sessionID) setRowsSynced(true)
+     },
+@@ -330,7 +335,6 @@ export function Session(props: {
+   createEffect(() => {
+     if (client.connection.status() !== "connected") return
+     setSynced(false)
+-    const sessionID = route.sessionID
+     void (async () => {
+       await Promise.all([
+         data.session.sync(sessionID, { children: true }),
+@@ -350,7 +354,7 @@ export function Session(props: {
+       editor.reconnect(info.location.directory)
+       setSynced(true)
+     })().catch((error) => {
+-      if (route.sessionID !== sessionID) return
++      if (sessionID !== sessionID) return
+       toast.show({
+         message: errorMessage(error),
+         variant: "error",
+@@ -382,10 +386,15 @@ export function Session(props: {
+     saveScrollAnchor(true)
+   })
+   const [prompt, setPrompt] = createSignal<PromptRef>()
++  // baton split: when this half becomes active, the app-level prompt ref must follow it.
++  createEffect(() => {
++    const current = prompt()
++    if (current && props.active !== false) promptRef.set(current)
++  })
+   const bind = (r: PromptRef | undefined) => {
+     setPrompt(r)
+-    promptRef.set(r)
+-    if (seeded || !route.prompt || !r) return
++    if (props.active !== false) promptRef.set(r)
++    if (props.sessionID || seeded || !route.prompt || !r) return
+     seeded = true
+     r.set(route.prompt)
+   }
+@@ -429,7 +438,7 @@ export function Session(props: {
+   const visibleEnd = createMemo(() => Math.max(hidden(), Math.min(visibleRowsEnd() ?? rows.length, rows.length)))
+   const visibleRows = createMemo(() => rows.slice(hidden(), visibleEnd()))
+   const prependHistory = createHistoryPrepend({
+-    sessionID: () => route.sessionID,
++    sessionID: () => sessionID,
+     more: (id) => data.session.message.more(id),
+     loadMore: async (id) => {
+       await data.session.message.loadMore(id)
+@@ -438,12 +447,12 @@ export function Session(props: {
+         messages: () => data.session.message.list(id).length,
+         more: () => data.session.message.more(id),
+         loadMore: () => data.session.message.loadMore(id),
+-        active: () => route.sessionID === id,
++        active: () => sessionID === id,
+       })
+     },
+     height: () => scroll.scrollHeight,
+     afterLayout,
+-    active: (id) => route.sessionID === id && Boolean(scroll && !scroll.isDestroyed),
++    active: (id) => sessionID === id && Boolean(scroll && !scroll.isDestroyed),
+     scrollBy: (amount) => {
+       scroll.scrollBy(amount)
+       updateAwayFromBottom()
+@@ -628,10 +637,10 @@ export function Session(props: {
+     const result = await runPendingAction(inboxID, async () => {
+       const request =
+         action === "steer"
+-          ? client.api.session.inbox.update({ sessionID: route.sessionID, inboxID, delivery: "steer" })
++          ? client.api.session.inbox.update({ sessionID: sessionID, inboxID, delivery: "steer" })
+           : action === "queue"
+-            ? client.api.session.inbox.update({ sessionID: route.sessionID, inboxID, delivery: "queue" })
+-            : client.api.session.inbox.cancel({ sessionID: route.sessionID, inboxID })
++            ? client.api.session.inbox.update({ sessionID: sessionID, inboxID, delivery: "queue" })
++            : client.api.session.inbox.cancel({ sessionID: sessionID, inboxID })
+       const error = await request.then(
+         () => undefined,
+         (error) => error,
+@@ -732,7 +741,7 @@ export function Session(props: {
+         dialog.clear()
+         return
+       }
+-      if (direction === "prev" && data.session.message.more(route.sessionID)) {
++      if (direction === "prev" && data.session.message.more(sessionID)) {
+         prependHistory(0, () => scrollToMessage(direction, dialog, userOnly))
+         return
+       }
+@@ -744,7 +753,7 @@ export function Session(props: {
+       const child = anchors.forMessage(messageID)
+       if (!child) return
+       const y = scroll.scrollTop + child.node.y - scroll.viewport.y
+-      const message = data.session.message.get(route.sessionID, messageID)
++      const message = data.session.message.get(sessionID, messageID)
+       alignMessage(messageID, Math.max(0, y - (message?.type === "assistant" ? 1 : 0)))
+     })
+ 
+@@ -754,7 +763,7 @@ export function Session(props: {
+     if (awayTimer) clearTimeout(awayTimer)
+     awayTimer = undefined
+     setAwayFromBottom(false)
+-    sessionTabs.setScrollAnchor(route.sessionID, undefined)
++    sessionTabs.setScrollAnchor(sessionID, undefined)
+     setHiddenRows(undefined)
+     setVisibleRowsEnd(undefined)
+     setTimeout(() => {
+@@ -863,7 +872,7 @@ export function Session(props: {
+             setVisibleRowsEnd(visibleEnd())
+           })
+           void data.session.message
+-            .loadMore(route.sessionID, {
++            .loadMore(sessionID, {
+               all: true,
+               signal: request.signal,
+               beforePublish: commit,
+@@ -920,12 +929,12 @@ export function Session(props: {
+       group: "Session",
+       slash: { name: "rename", arguments: true as const },
+       run: (input?: string) => {
+-        if (input === undefined) return DialogSessionRename.show(dialog, route.sessionID, session()?.title)
++        if (input === undefined) return DialogSessionRename.show(dialog, sessionID, session()?.title)
+         const title = input.trim()
+         void (
+           title
+-            ? client.api.session.update({ sessionID: route.sessionID, title })
+-            : data.session.title.generate(route.sessionID)
++            ? client.api.session.update({ sessionID: sessionID, title })
++            : data.session.title.generate(sessionID)
+         ).catch((error) => toast.error(error))
+       },
+     },
+@@ -937,7 +946,7 @@ export function Session(props: {
+       run: () => {
+         dialog.replace(() => (
+           <DialogTimeline
+-            sessionID={route.sessionID}
++            sessionID={sessionID}
+             onMove={jumpToMessage}
+             setPrompt={(value) => promptRef.current?.set(value)}
+           />
+@@ -952,7 +961,7 @@ export function Session(props: {
+       run: () => {
+         dialog.replace(() => (
+           <DialogFork
+-            sessionID={route.sessionID}
++            sessionID={sessionID}
+             onMove={(messageID) => {
+               if (!messageID) return
+               jumpToMessage(messageID)
+@@ -972,7 +981,7 @@ export function Session(props: {
+         const selection = local.model.current()
+         void data.session
+           .compact({
+-            sessionID: route.sessionID,
++            sessionID: sessionID,
+             model: selection
+               ? {
+                   providerID: selection.providerID,
+@@ -999,7 +1008,6 @@ export function Session(props: {
+           dialog.clear()
+           return
+         }
+-        const sessionID = route.sessionID
+         const target = prompt()
+         void (async () => {
+           if (pendingDeliveries().has(message.id)) {
+@@ -1025,7 +1033,7 @@ export function Session(props: {
+       slash: { name: "redo" },
+       run: () => {
+         void (async () => {
+-          const error = await client.api.session.revert.clear({ sessionID: route.sessionID }).then(
++          const error = await client.api.session.revert.clear({ sessionID: sessionID }).then(
+             () => undefined,
+             (error) => error,
+           )
+@@ -1101,7 +1109,7 @@ export function Session(props: {
+       group: "Session",
+       palette: undefined,
+       run: () => {
+-        const messages = data.session.message.list(route.sessionID)
++        const messages = data.session.message.list(sessionID)
+         if (!messages || !messages.length) return
+ 
+         // Find the most recent user message with non-ignored, non-synthetic text parts
+@@ -1190,7 +1198,7 @@ export function Session(props: {
+       group: "Session",
+       run: () => {
+         clipboard
+-          .write(route.sessionID)
++          .write(sessionID)
+           .then(() => toast.show({ message: "Session ID copied to clipboard!", variant: "success" }))
+           .catch(() => toast.show({ message: "Failed to copy session ID", variant: "error" }))
+         dialog.clear()
+@@ -1267,7 +1275,7 @@ export function Session(props: {
+       group: "Session",
+       palette: undefined,
+       run: () => {
+-        void client.api.session.background({ sessionID: route.sessionID })
++        void client.api.session.background({ sessionID: sessionID })
+         dialog.clear()
+       },
+     },
+@@ -1320,22 +1328,24 @@ export function Session(props: {
+ 
+   Keymap.createLayer(() => ({
+     mode: "global",
++    enabled: () => props.active !== false,
+     commands: commands(),
+     bindings: globalCommands.map((command) => command.id),
+   }))
+ 
+   Keymap.createLayer(() => ({
+-    enabled: () => renderer.currentFocusedEditor === null,
++    enabled: () => props.active !== false && renderer.currentFocusedEditor === null,
+     bindings: baseAndUnfocusedCommands.map((command) => command.id),
+   }))
+ 
+   Keymap.createLayer(() => ({
++    enabled: () => props.active !== false,
+     bindings: [...baseAndUnfocusedCommands, ...baseCommands()].map((command) => command.id),
+   }))
+ 
+   createEffect(
+     on(
+-      () => route.sessionID,
++      () => sessionID,
+       () => {
+         setComposer("open", false)
+         clearMessageNavigation()
+@@ -1378,7 +1388,7 @@ export function Session(props: {
+             return terminalHeight()
+           },
+         },
+-        sessionID: route.sessionID,
++        sessionID: sessionID,
+         thinkingMode,
+         markdownMode,
+         groupExploration,
+@@ -1430,11 +1440,22 @@ export function Session(props: {
+                   updateAwayFromBottom()
+                 }}
+               >
++                <Show when={messages().length === 0}>
++                  <box flexDirection="column" paddingTop={2} paddingLeft={1} gap={1}>
++                    <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
++                      Ready — type a task below.
++                    </text>
++                    <text fg={theme.text.muted} wrapMode="word">
++                      Both halves can build, review or take over. F7 / F8 swaps which one you
++                      are typing to; the other keeps working and its feed stays visible.
++                    </text>
++                  </box>
++                </Show>
+                 <For each={visibleRows()}>
+                   {(row, index) => (
+                     <SessionRowView
+                       row={row}
+-                      message={(messageID) => data.session.message.get(route.sessionID, messageID)}
++                      message={(messageID) => data.session.message.get(sessionID, messageID)}
+                       boundaryID={boundaries()[index() + hidden()]}
+                     />
+                   )}
+@@ -1475,9 +1496,9 @@ export function Session(props: {
+               <Show when={!composer.open && !disabled() && queuedPrompts().length > 0}>
+                 <QueuedPromptDock prompts={queuedPrompts()} onOpen={openQueuedPrompts} />
+               </Show>
+-              <Slot path="session.composer.top" input={{ sessionID: route.sessionID }} />
++              <Slot path="session.composer.top" input={{ sessionID: sessionID }} />
+               <Composer
+-                sessionID={route.sessionID}
++                sessionID={sessionID}
+                 open={composer.open || (!!session()?.parentID && forms().length === 0)}
+                 defaultTab={composer.tab ?? (session()?.parentID ? "subagents" : undefined)}
+                 onClose={() => {
+@@ -1520,12 +1541,13 @@ export function Session(props: {
+                   <SessionLocationMissing
+                     directory={session()!.location.directory}
+                     projectID={session()!.projectID}
+-                    sessionID={route.sessionID}
++                    sessionID={sessionID}
+                   />
+                 </Match>
+                 <Match when={!disabled()}>
+                   <Prompt
+                     visible={true}
++                    active={props.active !== false}
+                     ref={bind}
+                     muted={props.promptMuted}
+                     onSubmit={() => {
+@@ -1536,7 +1558,7 @@ export function Session(props: {
+                       if (!next) return false
+                       return mutatePending("steer", next.id)
+                     }}
+-                    sessionID={route.sessionID}
++                    sessionID={sessionID}
+                   />
+                 </Match>
+               </Switch>
+@@ -2147,7 +2169,7 @@ function RevertMessage(props: {
+       onMouseUp={() => {
+         if (renderer.getSelection()?.getSelectedText()) return
+         void (async () => {
+-          const error = await client.api.session.revert.clear({ sessionID: route.sessionID }).then(
++          const error = await client.api.session.revert.clear({ sessionID: sessionID }).then(
+             () => undefined,
+             (error) => error,
+           )

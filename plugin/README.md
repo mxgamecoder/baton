@@ -12,7 +12,7 @@ steer it mid-task — or take over. Built on [OpenCode](https://github.com/anoma
 | | |
 |---|---|
 | **Both agents are equal** | Either can build, review, watch or take over. There is no fixed "builder" and no fixed "inspector" — the pair decides per task. |
-| **Split view** | Left half is the agent you drive; right half is a live mirror of the other one's tool calls, files and messages. `alt+shift+left` / `alt+shift+right` swaps them. |
+| **Split view** | Two full, editable agent panes side by side. `F7` / `F8` moves the keyboard between them; both keep their own session, transcript and prompt. |
 | **`baton.watch`** | One agent reads what the other is doing live: its tool calls, files it touched, what it said. |
 | **`baton.steer`** | Redirect the other agent while it works ("fix the parser, not the tests"). Applies at the next step; `interrupt: true` stops the current step. |
 | **`baton.handoff` / `done`** | Pass actionable work, or close a thread with a verified result. Delivered automatically at the partner's next turn. |
@@ -73,9 +73,9 @@ One binary, no tmux, no separate OpenCode install. The split lives in baton's ow
    peer wakes with the message as normal input
 ```
 
-`baton.watch` reads a separate in-memory feed of each session's events (turn
-boundaries, tool calls, changed files, assistant text). It is a rear-view mirror,
-not a transcript — it clears when the server restarts.
+`baton.watch` reads a live feed of each session's events (turn boundaries, tool
+calls, changed files, assistant text). The same feed is appended to
+`~/.baton/projects/<project>/feed/<session>.jsonl` for external monitoring.
 
 ## Layout
 
