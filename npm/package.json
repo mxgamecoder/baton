@@ -1,0 +1,23 @@
+{
+  "name": "@lumorapp/baton",
+  "version": "0.4.7",
+  "description": "Two equal coding agents in one terminal — Alex and Nova. Self-contained; downloads its own bundle on first run.",
+  "license": "MIT",
+  "bin": {
+    "baton": "bin/baton.js"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/msgamecoder/baton.git"
+  }
+}
