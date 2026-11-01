@@ -3,3 +3,4 @@ plugin/node_modules/
 dist/
 dist/
 out/
+npm/node_modules/

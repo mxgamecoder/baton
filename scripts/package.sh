@@ -31,7 +31,9 @@ mkdir -p "$OUT/plugin"
 BUN="$HOME/.bun/bin/bun"
 [ -x "$BUN" ] || BUN="bun"
 
-"$BUN" build "$ROOT/plugin/bin/baton.ts" --compile --target="$BUN_TARGET" --outfile "$OUT/baton"
+EXE=""
+[[ "$TARGET" == windows-* ]] && EXE=".exe"
+"$BUN" build "$ROOT/plugin/bin/baton.ts" --compile --target="$BUN_TARGET" --outfile "$OUT/baton$EXE"
 
 if [[ "$TARGET" == windows-* ]]; then
   cp "$BASE" "$OUT/opencode.exe"
@@ -48,10 +50,11 @@ baton $VERSION ($TARGET) — two agents, one terminal.
 
 Everything is in this folder. Do not install anything else.
 
-  ./baton auth                 add your provider (stored in ~/.baton)
+  baton auth                   add your provider (stored in ~/.baton)
   ./baton models               list models
   ./baton model provider/model set the default model
-  cd your-project && /path/to/baton
+  cd your-project
+  C:\path\to\baton            (Windows: baton.exe)
 
   ./baton --version            baton $VERSION
   ./baton kill                 stop the pair
@@ -60,7 +63,7 @@ F7 / F8 — take the left / right agent. Clicking a pane works too.
 ~/.baton is baton's own world; it never touches your opencode config.
 TXT
 
-chmod +x "$OUT/baton"
+chmod +x "$OUT/baton$EXE"
 if [[ "$TARGET" != windows-* ]]; then chmod +x "$OUT/opencode"; fi
 
 NAME="baton-$VERSION-$TARGET"
